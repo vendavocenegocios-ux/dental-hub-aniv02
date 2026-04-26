@@ -16,9 +16,9 @@ async function loadHandler() {
   if (cachedHandler) return cachedHandler;
 
   const candidates = [
-    "../dist/server/server.js",
-    "../dist/server/index.js",
-    "../.output/server/index.mjs",
+    "./server/server.js",
+    "./server/index.js",
+    "./.output/server/index.mjs",
   ];
 
   const errors = [];
