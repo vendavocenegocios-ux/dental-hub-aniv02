@@ -1,0 +1,661 @@
+import { useState, useRef } from "react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { supabase } from "@/integrations/supabase/client";
+import { useAuth } from "@/hooks/use-auth";
+import { Upload, Trash2, Search, Plus, AlertCircle, CheckCircle2 } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Card } from "@/components/ui/card";
+import { Badge } from "@/components/ui/badge";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogFooter,
+  DialogDescription,
+} from "@/components/ui/dialog";
+import { Label } from "@/components/ui/label";
+import { toast } from "sonner";
+import {
+  getAniversariosErrorMessage,
+  withRequestTimeout,
+} from "@/components/aniversarios/request-utils";
+import { normalizePhoneBR } from "@/components/aniversarios/phone-utils";
+import {
+  parsePlanilhaFile,
+  type ParseResult,
+} from "@/components/aniversarios/parse-planilha";
+
+interface Contato {
+  id: string;
+  nome: string;
+  telefone: string;
+  data_nascimento: string | null;
+  instancia_id: string | null;
+  created_at: string;
+}
+
+export function ContatosTab({ acessoAtivo = true }: { acessoAtivo?: boolean } = {}) {
+  const { user } = useAuth();
+  const queryClient = useQueryClient();
+  const userId = user?.id;
+  const [search, setSearch] = useState("");
+  const [uploading, setUploading] = useState(false);
+  const [addOpen, setAddOpen] = useState(false);
+  const [editContato, setEditContato] = useState<Contato | null>(null);
+  const [form, setForm] = useState({ nome: "", telefone: "", data_nascimento: "" });
+  const fileRef = useRef<HTMLInputElement>(null);
+
+  // Estado de import com preview
+  const [previewOpen, setPreviewOpen] = useState(false);
+  const [previewData, setPreviewData] = useState<ParseResult | null>(null);
+  const [jaCadastradosSet, setJaCadastradosSet] = useState<Set<string>>(new Set());
+  const [importing, setImporting] = useState(false);
+
+  // Carrega instância ativa primeiro: contatos serão filtrados por user_id + instancia_id.
+  const instanciaQuery = useQuery({
+    queryKey: ["aniv:instance:id", userId],
+    enabled: !!userId,
+    queryFn: async () => {
+      const { data } = await supabase
+        .from("whatsapp_instances")
+        .select("id")
+        .eq("user_id", userId!)
+        .maybeSingle();
+      return ((data as { id: string } | null)?.id) ?? null;
+    },
+  });
+
+  const instanciaId = instanciaQuery.data ?? null;
+
+  const contatosQuery = useQuery({
+    queryKey: ["aniv:contatos:full", userId, instanciaId],
+    enabled: !!userId,
+    queryFn: async () => {
+      // Isolamento: SEMPRE filtra por user_id (defesa em profundidade além da RLS).
+      // Se houver instância ativa, filtra também por instancia_id para não misturar
+      // contatos entre instâncias do mesmo usuário.
+      let query = supabase
+        .from("contatos")
+        .select("*")
+        .eq("user_id", userId!)
+        .order("nome", { ascending: true });
+      if (instanciaId) {
+        query = query.eq("instancia_id", instanciaId);
+      }
+      const { data, error } = await withRequestTimeout(
+        query,
+        "O carregamento dos contatos",
+      );
+      if (error) throw error;
+      return (data as Contato[]) ?? [];
+    },
+  });
+
+  const contatos = contatosQuery.data ?? [];
+  const loading = contatosQuery.isLoading;
+
+  const refetchContatos = () =>
+    queryClient.invalidateQueries({ queryKey: ["aniv:contatos:full", userId] });
+
+  if (contatosQuery.isError) {
+    // Mostra erro ao usuário sem quebrar a UI; o array vazio renderiza normalmente.
+    console.warn("[ContatosTab] erro ao carregar", contatosQuery.error);
+  }
+
+  // Chave de duplicidade: nome (normalizado) + telefone (normalizado) + data
+  const dedupKey = (nome: string, telefone: string, data: string | null) => {
+    const norm = normalizePhoneBR(telefone);
+    const tel = norm.valid ? norm.phone : telefone;
+    return `${(nome ?? "").trim().toLowerCase()}|${tel ?? ""}|${data ?? ""}`;
+  };
+
+  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file || !user) return;
+
+    // Valida extensão
+    const name = file.name.toLowerCase();
+    if (!name.endsWith(".csv") && !name.endsWith(".xlsx")) {
+      toast.error("Formato inválido. Use apenas CSV ou XLSX.");
+      if (fileRef.current) fileRef.current.value = "";
+      return;
+    }
+
+    setUploading(true);
+    try {
+      const result = await parsePlanilhaFile(file);
+      if (result.total === 0) {
+        toast.error("Planilha vazia.");
+        return;
+      }
+
+      // Busca contatos do usuário para já marcar status "Já cadastrado" no preview.
+      const { data: existentes, error: errExist } = await supabase
+        .from("contatos")
+        .select("nome, telefone, data_nascimento")
+        .eq("user_id", user.id);
+
+      if (errExist) {
+        toast.error("Erro ao verificar duplicidade: " + errExist.message);
+        return;
+      }
+
+      const set = new Set(
+        (existentes ?? []).map((c) =>
+          dedupKey(
+            c.nome as string,
+            c.telefone as string,
+            c.data_nascimento as string | null,
+          ),
+        ),
+      );
+
+      setJaCadastradosSet(set);
+      setPreviewData(result);
+      setPreviewOpen(true);
+    } catch (err) {
+      console.error("[ContatosTab] erro ao ler arquivo", err);
+      toast.error("Erro ao ler o arquivo. Verifique o formato.");
+    } finally {
+      setUploading(false);
+      if (fileRef.current) fileRef.current.value = "";
+    }
+  };
+
+  const handleConfirmImport = async () => {
+    if (!previewData || !user) return;
+    if (previewData.validos.length === 0) {
+      toast.error("Nenhuma linha válida para importar.");
+      return;
+    }
+    setImporting(true);
+    try {
+      // Monta payload normalizado
+      const candidatos = previewData.validos.map((v) => {
+        const norm = normalizePhoneBR(v.telefone);
+        return {
+          user_id: user.id,
+          instancia_id: instanciaId,
+          nome: v.nome,
+          telefone: norm.valid ? norm.phone : v.telefone,
+          data_nascimento: v.data_nascimento,
+        };
+      });
+
+      // Filtra novos vs já cadastrados (usa o set capturado no upload + dedup do batch).
+      const novos: typeof candidatos = [];
+      const lote = new Set<string>();
+      let jaCadastrados = 0;
+
+      for (const c of candidatos) {
+        const k = dedupKey(c.nome, c.telefone, c.data_nascimento);
+        if (jaCadastradosSet.has(k) || lote.has(k)) {
+          jaCadastrados++;
+          continue;
+        }
+        lote.add(k);
+        novos.push(c);
+      }
+
+      let totalInserido = 0;
+      if (novos.length > 0) {
+        const { data: inserted, error } = await supabase
+          .from("contatos")
+          .insert(novos)
+          .select("id");
+
+        if (error) {
+          toast.error("Erro ao importar: " + error.message);
+          return;
+        }
+        totalInserido = inserted?.length ?? 0;
+      }
+
+      const totalErro = previewData.invalidos.length;
+
+      toast.success(
+        `Cadastrados: ${totalInserido} • Já existiam: ${jaCadastrados} • Com erro: ${totalErro}`,
+      );
+
+      setPreviewOpen(false);
+      setPreviewData(null);
+      setJaCadastradosSet(new Set());
+      await refetchContatos();
+    } catch (err) {
+      toast.error(getAniversariosErrorMessage(err));
+    } finally {
+      setImporting(false);
+    }
+  };
+
+
+  const handleSave = async () => {
+    if (!user || !form.nome || !form.telefone) return;
+    if (!form.data_nascimento) {
+      toast.error("Data de nascimento é obrigatória.");
+      return;
+    }
+    if (!instanciaId) {
+      toast.error(
+        "Conecte uma instância do WhatsApp antes de cadastrar contatos.",
+      );
+      return;
+    }
+    const norm = normalizePhoneBR(form.telefone);
+    if (!norm.valid) {
+      toast.error(
+        norm.reason ??
+          "Número inválido. Use formato 55DDXXXXXXXXX (ex: 5521981089100).",
+      );
+      return;
+    }
+    const payload = {
+      nome: form.nome.trim(),
+      telefone: norm.phone,
+      data_nascimento: form.data_nascimento,
+      instancia_id: instanciaId,
+      user_id: user.id,
+    };
+
+    try {
+      if (editContato) {
+        // Isolamento: só atualiza se o registro pertencer ao usuário logado.
+        const { error } = await supabase
+          .from("contatos")
+          .update(payload)
+          .eq("id", editContato.id)
+          .eq("user_id", user.id);
+        if (error) throw error;
+        toast.success("Contato atualizado");
+        setEditContato(null);
+      } else {
+        const { error } = await supabase.from("contatos").insert(payload);
+        if (error) throw error;
+        toast.success("Contato adicionado");
+        setAddOpen(false);
+      }
+      setForm({ nome: "", telefone: "", data_nascimento: "" });
+      await refetchContatos();
+    } catch (err) {
+      toast.error(getAniversariosErrorMessage(err));
+    }
+  };
+
+  const handleDelete = async (id: string) => {
+    if (!user) return;
+    // Isolamento: só deleta se o registro pertencer ao usuário logado.
+    const { error } = await supabase
+      .from("contatos")
+      .delete()
+      .eq("id", id)
+      .eq("user_id", user.id);
+    if (error) toast.error(error.message);
+    else {
+      toast.success("Contato removido");
+      await refetchContatos();
+    }
+  };
+
+  const openEdit = (c: Contato) => {
+    setEditContato(c);
+    setForm({
+      nome: c.nome,
+      telefone: c.telefone,
+      data_nascimento: c.data_nascimento ?? "",
+    });
+  };
+
+  const filtered = contatos.filter(
+    (c) =>
+      c.nome.toLowerCase().includes(search.toLowerCase()) ||
+      c.telefone.includes(search),
+  );
+
+  return (
+    <div className="space-y-4">
+      <div className="flex flex-wrap items-center gap-2">
+        <div className="flex items-center gap-2 flex-1 min-w-[200px]">
+          <Search className="h-4 w-4 text-muted-foreground" />
+          <Input
+            placeholder="Buscar contato..."
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            className="max-w-sm"
+          />
+        </div>
+        <div className="flex gap-2">
+          <Button
+            size="sm"
+            variant="outline"
+            disabled={!acessoAtivo}
+            title={!acessoAtivo ? "Assine um plano para liberar" : undefined}
+            onClick={() => {
+              setForm({ nome: "", telefone: "", data_nascimento: "" });
+              setAddOpen(true);
+            }}
+          >
+            <Plus className="mr-1 h-4 w-4" />
+            Adicionar
+          </Button>
+          <Button
+            size="sm"
+            variant="outline"
+            disabled={uploading || !acessoAtivo}
+            title={!acessoAtivo ? "Assine um plano para liberar" : undefined}
+            onClick={() => fileRef.current?.click()}
+          >
+            <Upload className="mr-1 h-4 w-4" />
+            {uploading ? "Importando..." : "Importar Planilha"}
+          </Button>
+          <input
+            ref={fileRef}
+            type="file"
+            accept=".csv,.xlsx"
+            className="hidden"
+            onChange={handleFileUpload}
+          />
+        </div>
+      </div>
+
+      <div className="flex flex-wrap items-center gap-2">
+        <Badge variant="secondary">{contatos.length} contatos</Badge>
+        {!instanciaId && (
+          <Badge variant="destructive">
+            Conecte o WhatsApp para vincular novos contatos a uma instância.
+          </Badge>
+        )}
+      </div>
+
+      {loading ? (
+        <div className="flex items-center justify-center py-12">
+          <div className="h-6 w-6 animate-spin rounded-full border-4 border-primary border-t-transparent" />
+        </div>
+      ) : (
+        <Card>
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>Nome</TableHead>
+                <TableHead>Telefone</TableHead>
+                <TableHead>Nascimento</TableHead>
+                <TableHead className="w-20" />
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {filtered.length === 0 ? (
+                <TableRow>
+                  <TableCell
+                    colSpan={4}
+                    className="text-center text-muted-foreground py-8"
+                  >
+                    Nenhum contato cadastrado
+                  </TableCell>
+                </TableRow>
+              ) : (
+                filtered.map((c) => (
+                  <TableRow key={c.id}>
+                    <TableCell
+                      className="font-medium cursor-pointer hover:underline"
+                      onClick={() => openEdit(c)}
+                    >
+                      {c.nome}
+                    </TableCell>
+                    <TableCell>{c.telefone}</TableCell>
+                    <TableCell>
+                      {c.data_nascimento
+                        ? new Date(c.data_nascimento + "T12:00:00").toLocaleDateString("pt-BR")
+                        : "—"}
+                    </TableCell>
+                    <TableCell>
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        onClick={() => handleDelete(c.id)}
+                      >
+                        <Trash2 className="h-4 w-4 text-destructive" />
+                      </Button>
+                    </TableCell>
+                  </TableRow>
+                ))
+              )}
+            </TableBody>
+          </Table>
+        </Card>
+      )}
+
+      <Dialog
+        open={addOpen || !!editContato}
+        onOpenChange={() => {
+          setAddOpen(false);
+          setEditContato(null);
+          setForm({ nome: "", telefone: "", data_nascimento: "" });
+        }}
+      >
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>
+              {editContato ? "Editar Contato" : "Novo Contato"}
+            </DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div>
+              <Label>Nome</Label>
+              <Input
+                value={form.nome}
+                onChange={(e) => setForm({ ...form, nome: e.target.value })}
+              />
+            </div>
+            <div>
+              <Label>Telefone (com DDD)</Label>
+              <Input
+                value={form.telefone}
+                onChange={(e) => setForm({ ...form, telefone: e.target.value })}
+                placeholder="5511999999999"
+              />
+            </div>
+            <div>
+              <Label>Data de Nascimento</Label>
+              <Input
+                type="date"
+                value={form.data_nascimento}
+                onChange={(e) =>
+                  setForm({ ...form, data_nascimento: e.target.value })
+                }
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button onClick={handleSave}>Salvar</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Dialog de Preview da importação */}
+      <Dialog
+        open={previewOpen}
+        onOpenChange={(open) => {
+          if (!open) {
+            setPreviewOpen(false);
+            setPreviewData(null);
+            setJaCadastradosSet(new Set());
+          }
+        }}
+      >
+        <DialogContent className="max-w-3xl">
+          <DialogHeader>
+            <DialogTitle>Pré-visualização da Importação</DialogTitle>
+            <DialogDescription>
+              Confira os dados antes de salvar. Contatos com mesmo nome,
+              telefone e data de nascimento já cadastrados serão ignorados.
+            </DialogDescription>
+          </DialogHeader>
+
+          {previewData && (() => {
+            const validosComStatus = previewData.validos.map((v) => ({
+              ...v,
+              jaCadastrado: jaCadastradosSet.has(
+                dedupKey(v.nome, v.telefone, v.data_nascimento),
+              ),
+            }));
+            const totalJa = validosComStatus.filter((v) => v.jaCadastrado).length;
+            const totalNovos = validosComStatus.length - totalJa;
+            return (
+            <div className="space-y-4 max-h-[60vh] overflow-y-auto">
+              <div className="flex flex-wrap items-center gap-2">
+                <Badge variant="secondary">Total: {previewData.total}</Badge>
+                <Badge className="bg-emerald-600 hover:bg-emerald-600">
+                  <CheckCircle2 className="mr-1 h-3 w-3" />
+                  Novos: {totalNovos}
+                </Badge>
+                <Badge variant="outline">
+                  Já cadastrados: {totalJa}
+                </Badge>
+                <Badge variant="destructive">
+                  <AlertCircle className="mr-1 h-3 w-3" />
+                  Inválidos: {previewData.invalidos.length}
+                </Badge>
+              </div>
+
+              {validosComStatus.length > 0 && (
+                <div>
+                  <p className="text-sm font-medium mb-2">
+                    Válidos (mostrando até 20):
+                  </p>
+                  <Card>
+                    <Table>
+                      <TableHeader>
+                        <TableRow>
+                          <TableHead className="w-12">#</TableHead>
+                          <TableHead>Nome</TableHead>
+                          <TableHead>Telefone</TableHead>
+                          <TableHead>Nascimento</TableHead>
+                          <TableHead>Status</TableHead>
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                        {validosComStatus.slice(0, 20).map((v) => (
+                          <TableRow key={`v-${v.linha}`}>
+                            <TableCell className="text-muted-foreground">
+                              {v.linha}
+                            </TableCell>
+                            <TableCell className="font-medium">
+                              {v.nome}
+                            </TableCell>
+                            <TableCell>{v.telefone}</TableCell>
+                            <TableCell>
+                              {new Date(
+                                v.data_nascimento + "T12:00:00",
+                              ).toLocaleDateString("pt-BR")}
+                            </TableCell>
+                            <TableCell>
+                              {v.jaCadastrado ? (
+                                <Badge variant="outline">Já cadastrado</Badge>
+                              ) : (
+                                <Badge className="bg-emerald-600 hover:bg-emerald-600">
+                                  Novo
+                                </Badge>
+                              )}
+                            </TableCell>
+                          </TableRow>
+                        ))}
+                      </TableBody>
+                    </Table>
+                  </Card>
+                </div>
+              )}
+
+              {previewData.invalidos.length > 0 && (
+                <div>
+                  <p className="text-sm font-medium mb-2 text-destructive">
+                    Inválidos (mostrando até 20):
+                  </p>
+                  <Card>
+                    <Table>
+                      <TableHeader>
+                        <TableRow>
+                          <TableHead className="w-12">Linha</TableHead>
+                          <TableHead>Nome</TableHead>
+                          <TableHead>Telefone</TableHead>
+                          <TableHead>Data</TableHead>
+                          <TableHead>Motivo</TableHead>
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                        {previewData.invalidos.slice(0, 20).map((v) => (
+                          <TableRow key={`i-${v.linha}`}>
+                            <TableCell className="text-muted-foreground">
+                              {v.linha}
+                            </TableCell>
+                            <TableCell>{v.raw.nome || "—"}</TableCell>
+                            <TableCell>{v.raw.telefone || "—"}</TableCell>
+                            <TableCell>
+                              {v.raw.data_nascimento || "—"}
+                            </TableCell>
+                            <TableCell className="text-destructive text-xs">
+                              {v.motivo}
+                            </TableCell>
+                          </TableRow>
+                        ))}
+                      </TableBody>
+                    </Table>
+                  </Card>
+                </div>
+              )}
+            </div>
+            );
+          })()}
+
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => {
+                setPreviewOpen(false);
+                setPreviewData(null);
+              }}
+              disabled={importing}
+            >
+              Cancelar
+            </Button>
+            <Button
+              onClick={handleConfirmImport}
+              disabled={
+                importing ||
+                !previewData ||
+                (previewData.validos.filter(
+                  (v) =>
+                    !jaCadastradosSet.has(
+                      dedupKey(v.nome, v.telefone, v.data_nascimento),
+                    ),
+                ).length === 0)
+              }
+            >
+              {(() => {
+                const novos = previewData
+                  ? previewData.validos.filter(
+                      (v) =>
+                        !jaCadastradosSet.has(
+                          dedupKey(v.nome, v.telefone, v.data_nascimento),
+                        ),
+                    ).length
+                  : 0;
+                return importing
+                  ? "Importando..."
+                  : `Confirmar e importar ${novos}`;
+              })()}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </div>
+  );
+}
