@@ -194,7 +194,20 @@ export const adminLogs = createServerFn({ method: "POST" })
     if (data.dataInicio) q = q.gte("created_at", data.dataInicio);
     if (data.dataFim) q = q.lte("created_at", data.dataFim);
     const { data: envios, error } = await q;
-    if (error) throw new Error(error.message);
+    if (error) {
+      // Tolera tabela ainda não criada (migration pendente) ou coluna ausente
+      const code = (error as { code?: string }).code;
+      const msg = error.message ?? "";
+      const schemaMissing =
+        code === "PGRST205" ||
+        code === "42P01" ||
+        code === "42703" ||
+        /schema cache|does not exist/i.test(msg);
+      if (schemaMissing) {
+        return { envios: [], grupos: [] };
+      }
+      throw new Error(msg);
+    }
 
     // Buscar emails/nome dos profiles em batch
     const userIds = Array.from(
