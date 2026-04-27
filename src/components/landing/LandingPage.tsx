@@ -146,47 +146,13 @@ function Hero() {
           </div>
 
           <div className="relative">
-            <div className="relative overflow-hidden rounded-3xl">
-              <img
-                src={heroDentist}
-                alt="Dentista sorrindo enquanto envia mensagem de aniversário pelo WhatsApp para paciente"
-                width={1920}
-                height={1088}
-                className="h-full w-full object-contain"
-              />
-            </div>
-
-            <Card className="absolute -left-4 top-8 hidden w-64 gap-0 border-border/60 p-4 shadow-xl sm:block lg:-left-10">
-              <div className="flex items-start gap-3">
-                <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-accent/10">
-                  <PartyPopper className="h-5 w-5 text-accent" />
-                </div>
-                <div className="min-w-0 flex-1">
-                  <p className="text-sm font-semibold leading-tight">
-                    Mensagem de aniversário enviada!
-                  </p>
-                  <p className="mt-1 text-xs text-muted-foreground">
-                    Hoje, 15 mensagens foram enviadas.
-                  </p>
-                  <Badge className="mt-2 gap-1 bg-accent/10 text-accent hover:bg-accent/15">
-                    <Check className="h-3 w-3" /> Sucesso
-                  </Badge>
-                </div>
-              </div>
-            </Card>
-
-            <Card className="absolute -right-4 bottom-8 hidden w-64 gap-2 border-border/60 p-4 shadow-xl sm:block lg:-right-10">
-              <div className="flex items-center gap-2 text-xs font-medium text-muted-foreground">
-                <Users className="h-4 w-4 text-primary" />
-                Pacientes ativos
-              </div>
-              <div className="text-3xl font-bold tracking-tight">1.248</div>
-              <div className="flex items-center gap-1 text-xs font-medium text-accent">
-                <TrendingUp className="h-3 w-3" />
-                +32 este mês
-              </div>
-              <MiniSparkline />
-            </Card>
+            <img
+              src={heroDentist}
+              alt="Dentista sorrindo enquanto envia mensagem de aniversário pelo WhatsApp para paciente"
+              width={1920}
+              height={1088}
+              className="h-auto w-full object-contain"
+            />
           </div>
         </div>
       </div>
