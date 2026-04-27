@@ -33,6 +33,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { useAuth } from "@/hooks/use-auth";
+import { supabase } from "@/integrations/supabase/client";
 import {
   adminEvolutionInstances,
   adminMetrics,
@@ -60,7 +61,7 @@ function AdminDashboard() {
   const { data, isLoading, error } = useQuery({
     queryKey: ["admin-metrics"],
     enabled: !!accessToken,
-    queryFn: () => adminMetrics({ data: { accessToken } }),
+    queryFn: () => loadAdminMetrics(accessToken),
     refetchInterval: 60_000,
   });
 
@@ -166,6 +167,58 @@ function AdminDashboard() {
       <EvolutionMonitorCard accessToken={accessToken} />
     </div>
   );
+}
+
+async function withTimeout<T>(promise: Promise<T>, timeoutMs = 8000): Promise<T> {
+  let timeoutId: ReturnType<typeof setTimeout> | undefined;
+  const timeout = new Promise<never>((_, reject) => {
+    timeoutId = setTimeout(() => reject(new Error("timeout")), timeoutMs);
+  });
+  try {
+    return await Promise.race([promise, timeout]);
+  } finally {
+    if (timeoutId) clearTimeout(timeoutId);
+  }
+}
+
+async function countRows(table: string, apply?: (q: any) => any) {
+  try {
+    const base = supabase.from(table).select("*", { count: "exact", head: true });
+    const { count } = await (apply ? apply(base) : base);
+    return count ?? 0;
+  } catch {
+    return 0;
+  }
+}
+
+async function loadAdminMetrics(accessToken: string) {
+  try {
+    return await withTimeout(adminMetrics({ data: { accessToken } }));
+  } catch {
+    const inicioMes = new Date();
+    inicioMes.setDate(1);
+    inicioMes.setHours(0, 0, 0, 0);
+    const inicioMesIso = inicioMes.toISOString();
+    const [totalUsuarios, whatsappConectado, contatos, enviadosMes, falhasMes, assinaturasAtivas] = await Promise.all([
+      countRows("profiles"),
+      countRows("whatsapp_instances", (q) => q.eq("status", "connected")),
+      countRows("contatos"),
+      countRows("envios_whatsapp", (q) => q.eq("status", "enviado").gte("created_at", inicioMesIso)),
+      countRows("envios_whatsapp", (q) => q.eq("status", "falha_envio").gte("created_at", inicioMesIso)),
+      countRows("assinaturas", (q) => q.eq("status", "ativa")),
+    ]);
+    const totalEnvios = enviadosMes + falhasMes;
+    return {
+      totalUsuarios,
+      whatsappConectado,
+      contatos,
+      enviadosMes,
+      falhasMes,
+      taxaSucesso: totalEnvios > 0 ? Math.round((enviadosMes / totalEnvios) * 100) : 0,
+      mrr: 0,
+      assinaturasAtivas,
+    };
+  }
 }
 
 function EvolutionMonitorCard({ accessToken }: { accessToken: string }) {
