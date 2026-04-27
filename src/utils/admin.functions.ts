@@ -50,62 +50,105 @@ export const adminMetrics = createServerFn({ method: "POST" })
     inicioMes.setHours(0, 0, 0, 0);
     const inicioMesIso = inicioMes.toISOString();
 
-    async function countAll(table: string) {
-      const { count } = await supabase
-        .from(table)
-        .select("*", { count: "exact", head: true });
-      return count ?? 0;
+    // Helper que tolera tabela inexistente (migration pendente).
+    // Sem isso, qualquer query a uma tabela ausente derruba a tela
+    // inteira do admin com Promise.all.
+    const isSchemaMissing = (
+      err: { code?: string; message?: string } | null | undefined,
+    ) =>
+      !!err &&
+      (err.code === "PGRST205" ||
+        err.code === "42P01" ||
+        /schema cache|does not exist/i.test(err.message ?? ""));
+
+    async function safeCount(
+      qb: {
+        then: (fn: (r: { count: number | null; error: unknown }) => void) => unknown;
+      },
+    ): Promise<number> {
+      try {
+        const { count, error } = (await qb) as unknown as {
+          count: number | null;
+          error: { code?: string; message?: string } | null;
+        };
+        if (error && !isSchemaMissing(error)) return 0;
+        return count ?? 0;
+      } catch {
+        return 0;
+      }
+    }
+
+    async function safeCountAll(table: string) {
+      return safeCount(
+        supabase.from(table).select("*", { count: "exact", head: true }) as unknown as {
+          then: (fn: (r: { count: number | null; error: unknown }) => void) => unknown;
+        },
+      );
     }
 
     const [
       totalUsuarios,
-      whatsappConectadoRes,
+      whatsappConectado,
       contatos,
-      enviadosMesRes,
-      falhasMesRes,
-      assinaturasAtivasRes,
+      enviadosMes,
+      falhasMes,
+      assinaturasAtivas,
     ] = await Promise.all([
-      countAll("profiles"),
-      supabase
-        .from("whatsapp_instances")
-        .select("*", { count: "exact", head: true })
-        .eq("status", "connected"),
-      countAll("contatos"),
-      supabase
-        .from("envios_whatsapp")
-        .select("*", { count: "exact", head: true })
-        .eq("status", "enviado")
-        .gte("created_at", inicioMesIso),
-      supabase
-        .from("envios_whatsapp")
-        .select("*", { count: "exact", head: true })
-        .eq("status", "falha_envio")
-        .gte("created_at", inicioMesIso),
-      supabase
-        .from("assinaturas")
-        .select("*", { count: "exact", head: true })
-        .eq("status", "ativa"),
+      safeCountAll("profiles"),
+      safeCount(
+        supabase
+          .from("whatsapp_instances")
+          .select("*", { count: "exact", head: true })
+          .eq("status", "connected") as unknown as {
+          then: (fn: (r: { count: number | null; error: unknown }) => void) => unknown;
+        },
+      ),
+      safeCountAll("contatos"),
+      safeCount(
+        supabase
+          .from("envios_whatsapp")
+          .select("*", { count: "exact", head: true })
+          .eq("status", "enviado")
+          .gte("created_at", inicioMesIso) as unknown as {
+          then: (fn: (r: { count: number | null; error: unknown }) => void) => unknown;
+        },
+      ),
+      safeCount(
+        supabase
+          .from("envios_whatsapp")
+          .select("*", { count: "exact", head: true })
+          .eq("status", "falha_envio")
+          .gte("created_at", inicioMesIso) as unknown as {
+          then: (fn: (r: { count: number | null; error: unknown }) => void) => unknown;
+        },
+      ),
+      safeCount(
+        supabase
+          .from("assinaturas")
+          .select("*", { count: "exact", head: true })
+          .eq("status", "ativa") as unknown as {
+          then: (fn: (r: { count: number | null; error: unknown }) => void) => unknown;
+        },
+      ),
     ]);
 
-    const whatsappConectado = whatsappConectadoRes.count ?? 0;
-    const enviadosMes = enviadosMesRes.count ?? 0;
-    const falhasMes = falhasMesRes.count ?? 0;
-    const assinaturasAtivas = assinaturasAtivasRes.count ?? 0;
-
-    // MRR — soma do valor das assinaturas ativas (mensal e anual/12)
+    // MRR — soma do valor das assinaturas ativas (mensal e anual/12).
+    // Tolerante a tabela ausente.
     let mrr = 0;
     try {
-      const { data: rows } = await supabase
+      const { data: rows, error } = await supabase
         .from("assinaturas")
         .select("planos(valor, ciclo)")
         .eq("status", "ativa");
-      for (const r of (rows ?? []) as Array<{
-        planos: { valor: number; ciclo: string } | { valor: number; ciclo: string }[] | null;
-      }>) {
-        const plano = Array.isArray(r.planos) ? r.planos[0] : r.planos;
-        if (!plano) continue;
-        const valor = Number(plano.valor) || 0;
-        mrr += plano.ciclo === "anual" ? valor / 12 : valor;
+      if (!error || !isSchemaMissing(error)) {
+        for (const r of (rows ?? []) as Array<{
+          planos: { valor: number; ciclo: string } | { valor: number; ciclo: string }[] | null;
+        }>) {
+          const plano = Array.isArray(r.planos) ? r.planos[0] : r.planos;
+          if (!plano) continue;
+          const valor = Number(plano.valor) || 0;
+          mrr += plano.ciclo === "anual" ? valor / 12 : valor;
+        }
       }
     } catch {
       mrr = 0;
