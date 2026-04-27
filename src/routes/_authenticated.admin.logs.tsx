@@ -106,21 +106,42 @@ function AdminLogs() {
     [periodo, customRange],
   );
 
-  const { data, isLoading } = useQuery({
+  const { data, isLoading, error } = useQuery({
     queryKey: ["admin-logs", filtroStatus, range.dataInicio, range.dataFim],
     enabled: !!accessToken,
-    queryFn: () =>
-      adminLogs({
-        data: {
-          accessToken,
-          limit: 1000,
-          filtroStatus,
-          dataInicio: range.dataInicio,
-          dataFim: range.dataFim,
-        },
-      }),
+    queryFn: async () => {
+      console.log("[AdminLogs] chamando adminLogs", {
+        filtroStatus,
+        dataInicio: range.dataInicio,
+        dataFim: range.dataFim,
+      });
+      try {
+        const res = await adminLogs({
+          data: {
+            accessToken,
+            limit: 1000,
+            filtroStatus,
+            dataInicio: range.dataInicio,
+            dataFim: range.dataFim,
+          },
+        });
+        console.log("[AdminLogs] resposta", {
+          envios: res?.envios?.length,
+          grupos: res?.grupos?.length,
+        });
+        return res;
+      } catch (e) {
+        console.error("[AdminLogs] erro", e);
+        throw e;
+      }
+    },
+    retry: 1,
     refetchInterval: 60_000,
   });
+
+  if (error) {
+    console.error("[AdminLogs] query error final", error);
+  }
 
   const grupos = data?.grupos ?? [];
   const envios = data?.envios ?? [];
