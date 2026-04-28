@@ -446,12 +446,14 @@ function Testimonials() {
         <div className="mt-12 grid gap-6 md:grid-cols-3">
           {messages.map((m) => (
             <div key={m.name} className="flex items-start gap-3">
-              <div
-                className={`flex h-12 w-12 shrink-0 items-center justify-center rounded-full text-base font-bold ${m.bg}`}
-                aria-hidden="true"
-              >
-                {m.initial}
-              </div>
+              <img
+                src={m.avatar}
+                alt={`Foto de ${m.name}`}
+                loading="lazy"
+                width={512}
+                height={512}
+                className="h-12 w-12 shrink-0 rounded-full object-cover ring-2 ring-background shadow-sm"
+              />
               <div className="relative w-full rounded-2xl rounded-tl-sm bg-background p-4 shadow-sm">
                 <p className="whitespace-pre-line text-sm leading-relaxed">
                   {m.text}
