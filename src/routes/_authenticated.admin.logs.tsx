@@ -115,17 +115,16 @@ function AdminLogs() {
         dataInicio: range.dataInicio,
         dataFim: range.dataFim,
       });
-      // Timeout defensivo: se o server-fn não responder em 20s, falha
-      // visivelmente em vez de deixar o spinner girando para sempre.
+      // Timeout defensivo aumentado para 45s (cold start do worker).
       const timeout = new Promise<never>((_, reject) =>
         setTimeout(
           () =>
             reject(
               new Error(
-                "Tempo esgotado (20s). Recarregue a página com Ctrl+Shift+R.",
+                "Tempo esgotado (45s). Recarregue a página com Ctrl+Shift+R.",
               ),
             ),
-          20_000,
+          45_000,
         ),
       );
       try {
@@ -133,7 +132,7 @@ function AdminLogs() {
           adminLogs({
             data: {
               accessToken,
-              limit: 1000,
+              limit: 200,
               filtroStatus,
               dataInicio: range.dataInicio,
               dataFim: range.dataFim,
@@ -152,7 +151,6 @@ function AdminLogs() {
       }
     },
     retry: 0,
-    refetchInterval: 60_000,
   });
 
   if (error) {
