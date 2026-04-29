@@ -428,8 +428,14 @@ export function MensagemTab({ acessoAtivo = true }: { acessoAtivo?: boolean } = 
             </p>
           </div>
 
+          <ModelosGaleria
+            categoria="aniversario"
+            selectedId={selectedModelo?.id ?? null}
+            onSelect={handleSelectModelo}
+          />
+
           <div>
-            <Label>Imagem (opcional)</Label>
+            <Label>Sua própria imagem (opcional)</Label>
             <input
               ref={fileRef}
               type="file"
