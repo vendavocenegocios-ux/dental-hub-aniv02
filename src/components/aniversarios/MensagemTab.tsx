@@ -25,9 +25,6 @@ import {
 import {
   assertPersistableImageUrl,
   uploadInstanceImage,
-  buildImagePath,
-  withCacheBuster,
-  BUCKET_NAME,
 } from "@/components/aniversarios/imagem-upload";
 import {
   ModelosGaleria,
