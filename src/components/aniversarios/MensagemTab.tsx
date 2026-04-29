@@ -153,13 +153,12 @@ export function MensagemTab({ acessoAtivo = true }: { acessoAtivo?: boolean } = 
 
   const handleSelectModelo = (modelo: ModeloMensagem) => {
     setSelectedModelo(modelo);
-    setMensagem(modelo.mensagem);
     setPendingFile(null);
     setLocalPreviewUrl((current) => {
       if (current?.startsWith("blob:")) URL.revokeObjectURL(current);
       return modelo.imagem_url;
     });
-    toast.success("Modelo aplicado! Edite o texto se quiser e clique em Salvar.");
+    toast.success("Imagem aplicada! Clique em Salvar para confirmar.");
   };
 
   // Lista os arquivos do folder {user_id}/{instance_name}/ e apaga todos
@@ -496,7 +495,7 @@ export function MensagemTab({ acessoAtivo = true }: { acessoAtivo?: boolean } = 
                   src={previewImage}
                   alt="Preview da imagem da mensagem de aniversário"
                   loading="lazy"
-                  className="mb-2 max-h-64 w-full rounded object-cover"
+                  className="mb-2 w-full rounded object-contain"
                 />
               ) : (
                 <div className="mb-2 flex h-32 items-center justify-center rounded bg-muted/50 text-xs text-muted-foreground">

@@ -18,21 +18,13 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { toast } from "sonner";
-import {
-  CATEGORIAS,
-  ModeloDialog,
-  type ModeloRow,
-} from "@/components/admin/ModeloDialog";
+import { ModeloDialog, type ModeloRow } from "@/components/admin/ModeloDialog";
 
 export const Route = createFileRoute("/_authenticated/admin/modelos")({
   component: AdminModelosPage,
 });
 
 const BUCKET = "modelos-mensagens";
-
-function categoriaLabel(value: string) {
-  return CATEGORIAS.find((c) => c.value === value)?.label ?? value;
-}
 
 function AdminModelosPage() {
   const qc = useQueryClient();
@@ -45,9 +37,7 @@ function AdminModelosPage() {
     queryFn: async () => {
       const { data, error } = await supabase
         .from("modelos_mensagens")
-        .select("*")
-        .order("categoria")
-        .order("ordem")
+        .select("id, categoria, imagem_url, imagem_path, ativo, ordem")
         .order("created_at", { ascending: false });
       if (error) throw error;
       return (data ?? []) as ModeloRow[];
@@ -83,7 +73,7 @@ function AdminModelosPage() {
     if (m.imagem_path) {
       await supabase.storage.from(BUCKET).remove([m.imagem_path]);
     }
-    toast.success("Modelo excluído");
+    toast.success("Imagem excluída");
     refetch();
   };
 
@@ -93,7 +83,7 @@ function AdminModelosPage() {
         <div>
           <h1 className="text-2xl font-bold">Modelos de Mensagens</h1>
           <p className="text-sm text-muted-foreground">
-            Crie modelos prontos (imagem + texto) para os clientes escolherem.
+            Suba imagens prontas que os clientes poderão escolher para o envio.
           </p>
         </div>
         <Button
@@ -102,7 +92,7 @@ function AdminModelosPage() {
             setDialogOpen(true);
           }}
         >
-          <Plus className="mr-2 h-4 w-4" /> Novo modelo
+          <Plus className="mr-2 h-4 w-4" /> Nova imagem
         </Button>
       </div>
 
@@ -118,19 +108,19 @@ function AdminModelosPage() {
         <Card className="flex flex-col items-center justify-center gap-2 p-12 text-center">
           <ImageIcon className="h-8 w-8 text-muted-foreground" />
           <p className="text-sm text-muted-foreground">
-            Nenhum modelo cadastrado ainda.
+            Nenhuma imagem cadastrada ainda.
           </p>
         </Card>
       ) : (
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
           {query.data.map((m) => (
             <Card key={m.id} className="overflow-hidden">
-              <div className="relative aspect-video w-full bg-muted">
+              <div className="relative w-full bg-muted">
                 <img
                   src={m.imagem_url}
-                  alt={m.titulo}
+                  alt="Modelo"
                   loading="lazy"
-                  className="h-full w-full object-cover"
+                  className="max-h-64 w-full object-contain"
                 />
                 {!m.ativo && (
                   <div className="absolute inset-0 flex items-center justify-center bg-background/70">
@@ -139,21 +129,15 @@ function AdminModelosPage() {
                 )}
               </div>
               <div className="space-y-2 p-3">
-                <div className="flex items-start justify-between gap-2">
-                  <div className="min-w-0">
-                    <p className="truncate text-sm font-semibold">{m.titulo}</p>
-                    <p className="text-xs text-muted-foreground">
-                      {categoriaLabel(m.categoria)} · ordem {m.ordem}
-                    </p>
-                  </div>
+                <div className="flex items-center justify-between gap-2">
+                  <span className="text-xs text-muted-foreground">
+                    {m.ativo ? "Visível aos clientes" : "Oculto"}
+                  </span>
                   <Switch
                     checked={m.ativo}
                     onCheckedChange={() => toggleAtivo(m)}
                   />
                 </div>
-                <p className="line-clamp-2 text-xs text-muted-foreground">
-                  {m.mensagem}
-                </p>
                 <div className="flex gap-2 pt-1">
                   <Button
                     size="sm"
@@ -194,10 +178,10 @@ function AdminModelosPage() {
       >
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>Excluir modelo?</AlertDialogTitle>
+            <AlertDialogTitle>Excluir imagem?</AlertDialogTitle>
             <AlertDialogDescription>
-              Esta ação remove o modelo "{confirmDelete?.titulo}" e a imagem
-              associada. Os clientes que já o aplicaram não são afetados.
+              Esta ação remove a imagem do catálogo. Os clientes que já a
+              aplicaram não são afetados.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
