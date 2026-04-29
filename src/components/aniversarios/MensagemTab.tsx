@@ -25,7 +25,14 @@ import {
 import {
   assertPersistableImageUrl,
   uploadInstanceImage,
+  buildImagePath,
+  withCacheBuster,
+  BUCKET_NAME,
 } from "@/components/aniversarios/imagem-upload";
+import {
+  ModelosGaleria,
+  type ModeloMensagem,
+} from "@/components/aniversarios/ModelosGaleria";
 
 interface ConfigMensagem {
   id: string;
@@ -42,6 +49,9 @@ export function MensagemTab({ acessoAtivo = true }: { acessoAtivo?: boolean } = 
   const [imagemUrl, setImagemUrl] = useState<string | null>(null);
   const [localPreviewUrl, setLocalPreviewUrl] = useState<string | null>(null);
   const [pendingFile, setPendingFile] = useState<File | null>(null);
+  const [selectedModelo, setSelectedModelo] = useState<ModeloMensagem | null>(
+    null,
+  );
   const [saving, setSaving] = useState(false);
   // Garante que o sync com a query só roda 1× por payload novo do servidor.
   const lastSyncedIdRef = useRef<string | null>(null);
