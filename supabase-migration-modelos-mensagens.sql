@@ -1,6 +1,6 @@
 -- =============================================================
 -- MIGRATION: Galeria de modelos de mensagens prontos
---   - Tabela public.modelos_mensagens
+--   - Tabela public.modelos_mensagens (apenas imagens)
 --   - Bucket público "modelos-mensagens"
 --   - RLS: leitura para qualquer authenticated, escrita só admin
 -- Rode no SQL Editor do Supabase externo.
@@ -10,9 +10,9 @@
 CREATE TABLE IF NOT EXISTS public.modelos_mensagens (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   categoria text NOT NULL DEFAULT 'aniversario',
-  titulo text NOT NULL,
+  titulo text,
   descricao text,
-  mensagem text NOT NULL,
+  mensagem text,
   imagem_url text NOT NULL,
   imagem_path text NOT NULL,
   ativo boolean NOT NULL DEFAULT true,
@@ -21,14 +21,15 @@ CREATE TABLE IF NOT EXISTS public.modelos_mensagens (
   updated_at timestamptz NOT NULL DEFAULT now()
 );
 
+-- Caso a tabela já exista com NOT NULL nos campos de texto, relaxar agora.
+ALTER TABLE public.modelos_mensagens ALTER COLUMN titulo DROP NOT NULL;
+ALTER TABLE public.modelos_mensagens ALTER COLUMN mensagem DROP NOT NULL;
+
 CREATE INDEX IF NOT EXISTS modelos_mensagens_categoria_ativo_idx
   ON public.modelos_mensagens (categoria, ativo, ordem);
 
 ALTER TABLE public.modelos_mensagens ENABLE ROW LEVEL SECURITY;
 
--- Helper: verifica se o usuário atual é admin (lê profiles.role)
--- Caso já exista uma função public.is_admin(), reutilize; aqui usamos
--- inline para não depender de outra migration.
 DROP POLICY IF EXISTS "modelos_select_authenticated" ON public.modelos_mensagens;
 CREATE POLICY "modelos_select_authenticated" ON public.modelos_mensagens
   FOR SELECT TO authenticated
