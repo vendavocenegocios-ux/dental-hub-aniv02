@@ -40,6 +40,20 @@ import celularWhatsapp from "@/assets/celular-whatsapp.png";
 import avatarMaria from "@/assets/avatar-maria.png";
 import avatarJulia from "@/assets/avatar-julia.png";
 import avatarCarlos from "@/assets/avatar-carlos.png";
+import prova1 from "@/assets/prova-1.png";
+import prova2 from "@/assets/prova-2.png";
+import prova3 from "@/assets/prova-3.png";
+import prova4 from "@/assets/prova-4.png";
+import prova5 from "@/assets/prova-5.png";
+import { useRef } from "react";
+import Autoplay from "embla-carousel-autoplay";
+import {
+  Carousel,
+  CarouselContent,
+  CarouselItem,
+  CarouselPrevious,
+  CarouselNext,
+} from "@/components/ui/carousel";
 
 export function LandingPage() {
   return (
@@ -417,62 +431,56 @@ function Benefits() {
 
 /* ---------------- Testimonials ---------------- */
 function Testimonials() {
-  const messages = [
-    {
-      name: "Maria",
-      avatar: avatarMaria,
-      text: "Muito obrigada! 😊\nQue carinho!\nVocês são demais!",
-      time: "10:32",
-    },
-    {
-      name: "Júlia",
-      avatar: avatarJulia,
-      text: "Vocês lembraram de mim! 🥰 🙏\nAmei a mensagem!",
-      time: "10:35",
-    },
-    {
-      name: "Carlos",
-      avatar: avatarCarlos,
-      text: "Vou agendar minha avaliação essa semana.\nObrigado! 😊",
-      time: "10:37",
-    },
+  const provas = [
+    { src: prova1, alt: "Conversa real no WhatsApp — paciente agradecendo a mensagem de aniversário" },
+    { src: prova2, alt: "Conversa real no WhatsApp — paciente marcando retorno após felicitação" },
+    { src: prova3, alt: "Conversa real no WhatsApp — paciente pedindo avaliação após mensagem" },
+    { src: prova4, alt: "Conversa real no WhatsApp — paciente levando familiares à clínica" },
+    { src: prova5, alt: "Conversa real no WhatsApp — paciente esperando a mensagem da clínica" },
   ];
+
+  const autoplay = useRef(
+    Autoplay({ delay: 5000, stopOnInteraction: false, stopOnMouseEnter: true }),
+  );
 
   return (
     <section id="depoimentos" className="bg-secondary/40 py-14">
-      <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
+      <div className="mx-auto max-w-5xl px-4 sm:px-6 lg:px-8">
         <div className="mx-auto max-w-2xl text-center">
           <h2 className="text-3xl font-bold tracking-tight sm:text-4xl">
             O que acontece na prática
           </h2>
           <p className="mt-3 text-muted-foreground">
-            Nossos clientes veem resultados todos os dias
+            Conversas reais de pacientes respondendo às mensagens enviadas pelo DentalHub
           </p>
         </div>
 
-        <div className="mt-12 grid gap-6 md:grid-cols-3">
-          {messages.map((m) => (
-            <div key={m.name} className="flex items-start gap-3">
-              <img
-                src={m.avatar}
-                alt={`Foto de ${m.name}`}
-                loading="lazy"
-                width={512}
-                height={512}
-                className="h-12 w-12 shrink-0 rounded-full object-cover ring-2 ring-background shadow-sm"
-              />
-              <div className="relative w-full rounded-2xl rounded-tl-sm bg-background p-4 shadow-sm">
-                <p className="whitespace-pre-line text-sm leading-relaxed">
-                  {m.text}
-                </p>
-                <div className="mt-2 flex items-center justify-end gap-1 text-xs text-muted-foreground">
-                  <span>{m.time}</span>
-                  <Check className="h-3 w-3 text-primary" />
-                  <Check className="-ml-2 h-3 w-3 text-primary" />
-                </div>
-              </div>
-            </div>
-          ))}
+        <div className="mt-12 px-8 sm:px-12">
+          <Carousel
+            opts={{ loop: true, align: "center" }}
+            plugins={[autoplay.current]}
+            className="mx-auto max-w-3xl"
+          >
+            <CarouselContent>
+              {provas.map((p, i) => (
+                <CarouselItem
+                  key={i}
+                  className="md:basis-1/2 lg:basis-1/3"
+                >
+                  <div className="flex justify-center p-1">
+                    <img
+                      src={p.src}
+                      alt={p.alt}
+                      loading="lazy"
+                      className="h-auto w-full max-w-[260px] rounded-2xl shadow-lg ring-1 ring-border"
+                    />
+                  </div>
+                </CarouselItem>
+              ))}
+            </CarouselContent>
+            <CarouselPrevious className="hidden sm:flex" />
+            <CarouselNext className="hidden sm:flex" />
+          </Carousel>
         </div>
 
         <p className="mt-10 text-center text-sm text-muted-foreground">
