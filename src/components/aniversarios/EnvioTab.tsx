@@ -658,7 +658,7 @@ export function EnvioTab({ acessoAtivo = true }: { acessoAtivo?: boolean } = {})
             <code className="break-all text-foreground">{WEBHOOK_URLS[webhookModo]}</code>
             {webhookDirty && (
               <p className="mt-2 text-muted-foreground">
-                O botão Enviar Teste continuará usando o modo salvo até você clicar em Salvar.
+                O botão Enviar Teste usará esta URL selecionada agora; Salvar apenas guarda a preferência.
               </p>
             )}
           </div>
