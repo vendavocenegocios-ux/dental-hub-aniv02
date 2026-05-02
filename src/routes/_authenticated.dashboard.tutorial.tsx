@@ -386,22 +386,44 @@ function TutorialPage() {
       <div className="space-y-4">
         {STEPS.map((step) => {
           const Icon = step.icon;
+          const concluido = stepStatus[step.key];
           return (
-            <Card key={step.num} className="overflow-hidden">
+            <Card
+              key={step.num}
+              className={`overflow-hidden ${concluido ? "border-primary/40" : ""}`}
+            >
               <div className="flex flex-col sm:flex-row">
                 {/* Coluna esquerda — número + ícone */}
-                <div className="flex items-center gap-3 bg-primary/5 p-4 sm:w-32 sm:flex-col sm:items-start sm:justify-start">
-                  <div className="flex h-10 w-10 items-center justify-center rounded-full bg-primary text-primary-foreground font-bold">
-                    {step.num}
+                <div
+                  className={`flex items-center gap-3 p-4 sm:w-32 sm:flex-col sm:items-start sm:justify-start ${
+                    concluido ? "bg-primary/15" : "bg-primary/5"
+                  }`}
+                >
+                  <div
+                    className={`flex h-10 w-10 items-center justify-center rounded-full font-bold ${
+                      concluido
+                        ? "bg-primary text-primary-foreground"
+                        : "bg-primary text-primary-foreground"
+                    }`}
+                  >
+                    {concluido ? <CheckCircle2 className="h-5 w-5" /> : step.num}
                   </div>
                   <Icon className="h-6 w-6 text-primary sm:h-8 sm:w-8" />
                 </div>
 
                 {/* Coluna direita — conteúdo */}
                 <div className="flex-1 p-4 sm:p-5">
-                  <h3 className="text-base font-semibold sm:text-lg">
-                    {step.title}
-                  </h3>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <h3 className="text-base font-semibold sm:text-lg">
+                      {step.title}
+                    </h3>
+                    {concluido && (
+                      <Badge className="gap-1 bg-primary/15 text-primary hover:bg-primary/20">
+                        <CheckCircle2 className="h-3 w-3" />
+                        Concluído
+                      </Badge>
+                    )}
+                  </div>
                   <p className="mt-1 text-sm text-muted-foreground">
                     {step.intro}
                   </p>
