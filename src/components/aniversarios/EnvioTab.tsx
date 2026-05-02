@@ -36,6 +36,7 @@ import {
 import { toast } from "sonner";
 import {
   buildMensagemPreview,
+  DEFAULT_MENSAGEM_ANIVERSARIO,
   isMensagemConfigurada,
 } from "@/components/aniversarios/mensagem-config";
 import {
@@ -447,20 +448,8 @@ export function EnvioTab({ acessoAtivo = true }: { acessoAtivo?: boolean } = {})
       toast.error("Conecte o WhatsApp primeiro");
       return;
     }
-    if (!isMensagemConfigurada(config)) {
-      toast.error("Configure sua mensagem na aba Mensagem");
-      return;
-    }
-    if (webhookDirty) {
-      toast.error("Clique em Salvar para usar o webhook selecionado.");
-      return;
-    }
-
-    const mensagemTemplate = config?.mensagem?.trim();
-    if (!mensagemTemplate) {
-      toast.error("Configure sua mensagem na aba Mensagem");
-      return;
-    }
+    const mensagemTemplate =
+      config?.mensagem?.trim() || DEFAULT_MENSAGEM_ANIVERSARIO;
 
     const contato = contatos.find((c) => c.id === selectedContato);
     const rawPhone = contato?.telefone || customPhone;
@@ -496,9 +485,12 @@ export function EnvioTab({ acessoAtivo = true }: { acessoAtivo?: boolean } = {})
         triggerN8nTestWebhook({
           data: {
             accessToken,
+            modo: webhookModo,
             nome,
             telefone: phone,
+            nomeInstancia: instanceName,
             mensagem: finalMessage,
+            imagemUrl: config?.imagem_url ?? null,
           },
         }),
         "O acionamento do webhook de teste",
@@ -579,8 +571,6 @@ export function EnvioTab({ acessoAtivo = true }: { acessoAtivo?: boolean } = {})
   }
 
   const hasConfiguredMessage = isMensagemConfigurada(config);
-  const canSend = instanceStatus === "connected" && hasConfiguredMessage;
-
   return (
     <div className="space-y-4">
       {loadError && (
@@ -668,7 +658,7 @@ export function EnvioTab({ acessoAtivo = true }: { acessoAtivo?: boolean } = {})
             <code className="break-all text-foreground">{WEBHOOK_URLS[webhookModo]}</code>
             {webhookDirty && (
               <p className="mt-2 text-muted-foreground">
-                O botão Enviar Teste continuará usando o modo salvo até você clicar em Salvar.
+                O botão Enviar Teste usará esta URL selecionada agora; Salvar apenas guarda a preferência.
               </p>
             )}
           </div>
@@ -759,14 +749,10 @@ export function EnvioTab({ acessoAtivo = true }: { acessoAtivo?: boolean } = {})
 
           {(() => {
             const motivoBloqueio = !acessoAtivo
-              ? "Assine um plano para liberar."
-              : instanceStatus !== "connected"
-                ? "Conecte o WhatsApp na aba 'WhatsApp' antes de enviar."
-                : !hasConfiguredMessage
-                  ? "Configure sua mensagem na aba 'Mensagem' antes de enviar."
-                  : webhookDirty
-                    ? "Clique em Salvar para usar o webhook selecionado antes de enviar."
-                    : null;
+              ? null
+              : !instanceName
+                ? "Conecte uma instância do WhatsApp antes de enviar."
+                : null;
             return (
               <div className="space-y-2">
                 <Button

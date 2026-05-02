@@ -22,12 +22,15 @@ function resolveWebhookUrl(modo: string | null | undefined): {
 
 const triggerSchema = z.object({
   accessToken: z.string().min(1),
+  modo: z.enum(["teste", "producao"]).optional(),
   nome: z.string().min(1).max(200),
   telefone: z.string().min(8).max(20),
+  nomeInstancia: z.string().min(1).max(200),
   mensagem: z.string().min(1).max(4000),
+  imagemUrl: z.string().max(2000).nullish(),
 });
 
-async function getAuthenticatedSupabase(accessToken: string) {
+async function assertAuthenticated(accessToken: string) {
   const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
     auth: { persistSession: false, autoRefreshToken: false },
     global: { headers: { Authorization: `Bearer ${accessToken}` } },
@@ -37,7 +40,6 @@ async function getAuthenticatedSupabase(accessToken: string) {
   if (error || !userData?.user) {
     throw new Error("Usuário não autenticado");
   }
-  return { supabase, user: userData.user };
 }
 
 /**
@@ -96,29 +98,9 @@ export const triggerN8nTestWebhook = createServerFn({ method: "POST" })
     triggerSchema.parse(input),
   )
   .handler(async ({ data }) => {
-    const { supabase, user } = await getAuthenticatedSupabase(data.accessToken);
+    await assertAuthenticated(data.accessToken);
 
-    const { data: instance, error: instanceError } = await supabase
-      .from("whatsapp_instances")
-      .select("id, instance_name, instance_id, imagem_url")
-      .eq("user_id", user.id)
-      .maybeSingle();
-
-    if (instanceError) {
-      return {
-        success: false as const,
-        error: `Erro ao buscar instância: ${instanceError.message}`,
-      };
-    }
-
-    if (!instance) {
-      return {
-        success: false as const,
-        error: "Nenhuma instância WhatsApp encontrada para este usuário.",
-      };
-    }
-
-    const nomeInstancia = instance.instance_name?.trim();
+    const nomeInstancia = data.nomeInstancia.trim();
     if (!nomeInstancia) {
       return {
         success: false as const,
@@ -145,18 +127,8 @@ export const triggerN8nTestWebhook = createServerFn({ method: "POST" })
       };
     }
 
-    const imagemUrl = sanitizeImagemUrl(instance.imagem_url);
-
-    // Resolve URL do webhook (teste ou produção) com base na config do usuário.
-    const { data: webhookConfig } = await supabase
-      .from("config_webhook")
-      .select("modo")
-      .eq("user_id", user.id)
-      .maybeSingle();
-
-    const { url: webhookUrl, modo: webhookModo } = resolveWebhookUrl(
-      webhookConfig?.modo,
-    );
+    const imagemUrl = sanitizeImagemUrl(data.imagemUrl);
+    const { url: webhookUrl, modo: webhookModo } = resolveWebhookUrl(data.modo);
 
     // Payload do envio de teste — campos exigidos pelo n8n.
     const payload = {
