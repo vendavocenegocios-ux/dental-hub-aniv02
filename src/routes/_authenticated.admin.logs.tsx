@@ -101,6 +101,7 @@ type GrupoUsuario = {
   nome_responsavel: string;
   instancias: Array<{
     instancia: string;
+    owner_number: string | null;
     linhas: LogRow[];
     total: number;
     enviados: number;
@@ -111,7 +112,10 @@ type GrupoUsuario = {
   erros: number;
 };
 
-function agrupar(rows: LogRow[]): GrupoUsuario[] {
+function agrupar(
+  rows: LogRow[],
+  ownerNumberByInstance: Map<string, string | null>,
+): GrupoUsuario[] {
   const mapUser = new Map<string, GrupoUsuario>();
 
   for (const r of rows) {
