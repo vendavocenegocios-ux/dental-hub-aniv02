@@ -140,6 +140,13 @@ export const triggerN8nTestWebhook = createServerFn({ method: "POST" })
     };
 
     try {
+      console.info("[n8n-webhook] disparando envio de teste", {
+        modo: webhookModo,
+        webhookUrl,
+        nomeInstancia,
+        hasImagem: Boolean(imagemUrl),
+      });
+
       const res = await fetch(webhookUrl, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -147,6 +154,12 @@ export const triggerN8nTestWebhook = createServerFn({ method: "POST" })
       });
 
       const text = await res.text();
+
+      console.info("[n8n-webhook] resposta recebida", {
+        modo: webhookModo,
+        status: res.status,
+        ok: res.ok,
+      });
 
       if (!res.ok) {
         return {
