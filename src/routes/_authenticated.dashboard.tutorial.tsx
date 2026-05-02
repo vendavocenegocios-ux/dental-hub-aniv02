@@ -90,6 +90,7 @@ function HighlightBtn({
 const STEPS: Step[] = [
   {
     num: 1,
+    key: "assinatura",
     icon: CreditCard,
     title: "Escolha um plano e faça o pagamento",
     intro:
@@ -127,6 +128,7 @@ const STEPS: Step[] = [
   },
   {
     num: 2,
+    key: "whatsapp",
     icon: Smartphone,
     title: "Conecte o WhatsApp do consultório",
     intro:
@@ -163,6 +165,7 @@ const STEPS: Step[] = [
   },
   {
     num: 3,
+    key: "contatos",
     icon: Upload,
     title: "Suba sua planilha de pacientes",
     intro:
@@ -207,6 +210,7 @@ const STEPS: Step[] = [
   },
   {
     num: 4,
+    key: "mensagem",
     icon: MessageSquare,
     title: "Escreva a mensagem de aniversário",
     intro:
