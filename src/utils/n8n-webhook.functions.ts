@@ -23,14 +23,19 @@ function resolveWebhookUrl(modo: string | null | undefined): {
 const triggerSchema = z.object({
   accessToken: z.string().min(1),
   modo: z.enum(["teste", "producao"]).optional(),
-  nome: z.string().min(1).max(200),
-  telefone: z.string().min(8).max(20),
-  nomeInstancia: z.string().min(1).max(200),
-  mensagem: z.string().min(1).max(4000),
+  // Campos de override opcionais (vindos da UI). Se não vierem, o servidor
+  // resolve TUDO a partir do Supabase — fonte da verdade.
+  nome: z.string().min(1).max(200).optional(),
+  telefone: z.string().min(8).max(20).optional(),
+  // Mantemos compatibilidade com chamadas antigas que ainda passam estes campos:
+  nomeInstancia: z.string().min(1).max(200).optional(),
+  mensagem: z.string().min(1).max(4000).optional(),
   imagemUrl: z.string().max(2000).nullish(),
 });
 
-async function assertAuthenticated(accessToken: string) {
+const DEFAULT_MENSAGEM = "🎂 Feliz aniversário, {nome}! 🎉";
+
+async function getAuthenticatedSupabase(accessToken: string) {
   const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
     auth: { persistSession: false, autoRefreshToken: false },
     global: { headers: { Authorization: `Bearer ${accessToken}` } },
@@ -40,15 +45,9 @@ async function assertAuthenticated(accessToken: string) {
   if (error || !userData?.user) {
     throw new Error("Usuário não autenticado");
   }
+  return { supabase, user: userData.user };
 }
 
-/**
- * Normaliza telefone para o padrão BR esperado pelo n8n/Evolution:
- *  - remove qualquer caractere não numérico
- *  - remove zeros à esquerda
- *  - garante DDI 55 quando o número tem 10 ou 11 dígitos
- *  - retorna no formato 55DDXXXXXXXXX (12 ou 13 dígitos)
- */
 function normalizePhoneServer(input: string): string {
   let digits = String(input ?? "").replace(/\D/g, "").replace(/^0+/, "");
   if (!digits) throw new Error("Telefone vazio.");
@@ -65,14 +64,12 @@ function normalizePhoneServer(input: string): string {
   return digits;
 }
 
-/** Substitui {nome} (e variações com espaço) pelo nome final, sem deixar variáveis cruas. */
 function renderMensagem(template: string, nome: string): string {
   return String(template ?? "")
     .replace(/\{\s*nome\s*\}/gi, nome)
     .trim();
 }
 
-/** Valida se a URL de imagem é pública/usável; retorna null se inválida. */
 function sanitizeImagemUrl(url: string | null | undefined): string | null {
   if (!url) return null;
   const trimmed = String(url).trim();
@@ -84,23 +81,42 @@ function sanitizeImagemUrl(url: string | null | undefined): string | null {
 /**
  * Aciona o webhook do n8n responsável pelo envio de teste.
  *
- * Padroniza TODOS os campos antes de enviar:
- *  - telefone → 55DDXXXXXXXXX (apenas dígitos)
- *  - mensagem → texto final, com {nome} já substituído
- *  - nome_instancia → obrigatório, nunca null
- *  - imagem_url → URL pública (https) ou ausência explícita
+ * O servidor é a FONTE DA VERDADE: busca instância, mensagem e imagem
+ * direto do Supabase no momento do disparo, garantindo que a UI nunca
+ * envie dados defasados/cacheados ao n8n.
  *
- * O n8n é responsável por executar o envio na Evolution API e inserir
- * o registro em `envios_whatsapp`. O frontend escuta via Realtime.
+ * Payload final enviado ao n8n:
+ *   { telefone, nome, nome_instancia, mensagem, imagem_url }
  */
 export const triggerN8nTestWebhook = createServerFn({ method: "POST" })
   .inputValidator((input: z.infer<typeof triggerSchema>) =>
     triggerSchema.parse(input),
   )
   .handler(async ({ data }) => {
-    await assertAuthenticated(data.accessToken);
+    const { supabase, user } = await getAuthenticatedSupabase(data.accessToken);
 
-    const nomeInstancia = data.nomeInstancia.trim();
+    // 1) Instância (nome + imagem espelhada).
+    const { data: instance, error: instanceError } = await supabase
+      .from("whatsapp_instances")
+      .select("id, instance_name, imagem_url")
+      .eq("user_id", user.id)
+      .maybeSingle();
+
+    if (instanceError) {
+      return {
+        success: false as const,
+        error: `Erro ao buscar instância: ${instanceError.message}`,
+      };
+    }
+    if (!instance) {
+      return {
+        success: false as const,
+        error: "Nenhuma instância WhatsApp encontrada para este usuário.",
+      };
+    }
+
+    const nomeInstancia =
+      data.nomeInstancia?.trim() || instance.instance_name?.trim() || "";
     if (!nomeInstancia) {
       return {
         success: false as const,
@@ -108,6 +124,39 @@ export const triggerN8nTestWebhook = createServerFn({ method: "POST" })
       };
     }
 
+    // 2) Config da mensagem (mensagem + imagem da mensagem).
+    const { data: configMensagem, error: configError } = await supabase
+      .from("config_mensagem")
+      .select("mensagem, imagem_url")
+      .eq("user_id", user.id)
+      .maybeSingle();
+
+    if (configError) {
+      return {
+        success: false as const,
+        error: `Erro ao buscar config_mensagem: ${configError.message}`,
+      };
+    }
+
+    // 3) Modo do webhook — prioridade: payload da UI > config_webhook > teste.
+    let modoSalvo: string | null | undefined = data.modo;
+    if (!modoSalvo) {
+      const { data: webhookConfig } = await supabase
+        .from("config_webhook")
+        .select("modo")
+        .eq("user_id", user.id)
+        .maybeSingle();
+      modoSalvo = webhookConfig?.modo;
+    }
+    const { url: webhookUrl, modo: webhookModo } = resolveWebhookUrl(modoSalvo);
+
+    // 4) Telefone e nome — aceita override da UI.
+    if (!data.telefone) {
+      return {
+        success: false as const,
+        error: "Telefone obrigatório.",
+      };
+    }
     let telefone: string;
     try {
       telefone = normalizePhoneServer(data.telefone);
@@ -117,9 +166,14 @@ export const triggerN8nTestWebhook = createServerFn({ method: "POST" })
         error: err instanceof Error ? err.message : "Telefone inválido.",
       };
     }
+    const nome = (data.nome?.trim() || "paciente").slice(0, 200);
 
-    const nome = data.nome.trim() || "paciente";
-    const mensagem = renderMensagem(data.mensagem, nome);
+    // 5) Mensagem — UI > config_mensagem > default.
+    const mensagemTemplate =
+      data.mensagem?.trim() ||
+      configMensagem?.mensagem?.trim() ||
+      DEFAULT_MENSAGEM;
+    const mensagem = renderMensagem(mensagemTemplate, nome);
     if (!mensagem) {
       return {
         success: false as const,
@@ -127,10 +181,27 @@ export const triggerN8nTestWebhook = createServerFn({ method: "POST" })
       };
     }
 
-    const imagemUrl = sanitizeImagemUrl(data.imagemUrl);
-    const { url: webhookUrl, modo: webhookModo } = resolveWebhookUrl(data.modo);
+    // 6) Imagem — prioridade: UI > config_mensagem > whatsapp_instances.
+    const imagemUiOverride =
+      data.imagemUrl !== undefined ? sanitizeImagemUrl(data.imagemUrl) : null;
+    const imagemConfig = sanitizeImagemUrl(configMensagem?.imagem_url);
+    const imagemInstance = sanitizeImagemUrl(instance.imagem_url);
 
-    // Payload do envio de teste — campos exigidos pelo n8n.
+    let imagemUrl: string | null = null;
+    let imagemFonte: "ui" | "config_mensagem" | "whatsapp_instances" | "none" =
+      "none";
+    if (imagemUiOverride) {
+      imagemUrl = imagemUiOverride;
+      imagemFonte = "ui";
+    } else if (imagemConfig) {
+      imagemUrl = imagemConfig;
+      imagemFonte = "config_mensagem";
+    } else if (imagemInstance) {
+      imagemUrl = imagemInstance;
+      imagemFonte = "whatsapp_instances";
+    }
+
+    // 7) Payload exatamente como o n8n espera.
     const payload = {
       telefone,
       nome,
@@ -139,14 +210,26 @@ export const triggerN8nTestWebhook = createServerFn({ method: "POST" })
       imagem_url: imagemUrl ?? "",
     };
 
-    try {
-      console.info("[n8n-webhook] disparando envio de teste", {
-        modo: webhookModo,
-        webhookUrl,
-        nomeInstancia,
-        hasImagem: Boolean(imagemUrl),
-      });
+    // Versão sanitizada para retorno ao frontend (debug).
+    const debugPayload = {
+      telefone: telefone.slice(0, 4) + "***" + telefone.slice(-2),
+      nome,
+      nome_instancia: nomeInstancia,
+      mensagem_preview: mensagem.slice(0, 80),
+      mensagem_len: mensagem.length,
+      imagem_url: imagemUrl ?? "",
+      imagem_fonte: imagemFonte,
+    };
 
+    console.info("[n8n-webhook] disparando", {
+      modo: webhookModo,
+      webhookUrl,
+      nomeInstancia,
+      hasImagem: Boolean(imagemUrl),
+      imagemFonte,
+    });
+
+    try {
       const res = await fetch(webhookUrl, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -155,10 +238,11 @@ export const triggerN8nTestWebhook = createServerFn({ method: "POST" })
 
       const text = await res.text();
 
-      console.info("[n8n-webhook] resposta recebida", {
+      console.info("[n8n-webhook] resposta", {
         modo: webhookModo,
         status: res.status,
         ok: res.ok,
+        bodySnippet: text.slice(0, 200),
       });
 
       if (!res.ok) {
@@ -168,6 +252,7 @@ export const triggerN8nTestWebhook = createServerFn({ method: "POST" })
           status: res.status,
           modo: webhookModo,
           webhookUrl,
+          debugPayload,
         };
       }
 
@@ -177,14 +262,17 @@ export const triggerN8nTestWebhook = createServerFn({ method: "POST" })
         response: text.slice(0, 1000),
         modo: webhookModo,
         webhookUrl,
+        debugPayload,
       };
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
+      console.error("[n8n-webhook] falha de rede", { modo: webhookModo, message });
       return {
         success: false as const,
         error: `Falha ao chamar webhook n8n (${webhookModo}): ${message}`,
         modo: webhookModo,
         webhookUrl,
+        debugPayload,
       };
     }
   });
