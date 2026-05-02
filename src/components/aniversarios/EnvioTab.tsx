@@ -427,7 +427,18 @@ export function EnvioTab({ acessoAtivo = true }: { acessoAtivo?: boolean } = {})
     : null;
 
   const handleSend = async () => {
-    if (!user) return;
+    console.log("[EnvioTab] handleSend chamado", {
+      instanceName,
+      instanceStatus,
+      hasConfig: isMensagemConfigurada(config),
+      acessoAtivo,
+      selectedContato,
+      customPhone,
+    });
+    if (!user) {
+      toast.error("Sessão expirada. Faça login novamente.");
+      return;
+    }
     if (!instanceName) {
       toast.error("Conecte o WhatsApp primeiro");
       return;
@@ -723,14 +734,30 @@ export function EnvioTab({ acessoAtivo = true }: { acessoAtivo?: boolean } = {})
             </div>
           )}
 
-          <Button
-            onClick={handleSend}
-            disabled={sending || !canSend || !acessoAtivo}
-            title={!acessoAtivo ? "Assine um plano para liberar" : undefined}
-          >
-            <Send className="mr-2 h-4 w-4" />
-            {sending ? "Enviando..." : "Enviar Teste"}
-          </Button>
+          {(() => {
+            const motivoBloqueio = !acessoAtivo
+              ? "Assine um plano para liberar."
+              : instanceStatus !== "connected"
+                ? "Conecte o WhatsApp na aba 'WhatsApp' antes de enviar."
+                : !hasConfiguredMessage
+                  ? "Configure sua mensagem na aba 'Mensagem' antes de enviar."
+                  : null;
+            return (
+              <div className="space-y-2">
+                <Button
+                  onClick={handleSend}
+                  disabled={sending || !!motivoBloqueio}
+                  title={motivoBloqueio ?? undefined}
+                >
+                  <Send className="mr-2 h-4 w-4" />
+                  {sending ? "Enviando..." : "Enviar Teste"}
+                </Button>
+                {motivoBloqueio && (
+                  <p className="text-xs text-destructive">{motivoBloqueio}</p>
+                )}
+              </div>
+            );
+          })()}
         </CardContent>
       </Card>
 

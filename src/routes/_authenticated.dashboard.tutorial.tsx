@@ -1,4 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router";
+import { useQuery } from "@tanstack/react-query";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -18,6 +19,10 @@ import {
   ArrowRight,
 } from "lucide-react";
 import { Link } from "@tanstack/react-router";
+import { useAuth } from "@/hooks/use-auth";
+import { useAcessoAtivo } from "@/hooks/use-acesso-ativo";
+import { supabase } from "@/integrations/supabase/client";
+import { isMensagemConfigurada } from "@/components/aniversarios/mensagem-config";
 
 export const Route = createFileRoute("/_authenticated/dashboard/tutorial")({
   component: TutorialPage,
@@ -34,6 +39,8 @@ interface Step {
   seguranca?: string;
   /** Mockup visual da tela correspondente. */
   mockup: React.ReactNode;
+  /** Chave para checar se o passo está concluído. */
+  key: "assinatura" | "whatsapp" | "contatos" | "mensagem" | "envio";
 }
 
 // ----------------------------------------------------------
@@ -83,6 +90,7 @@ function HighlightBtn({
 const STEPS: Step[] = [
   {
     num: 1,
+    key: "assinatura",
     icon: CreditCard,
     title: "Escolha um plano e faça o pagamento",
     intro:
@@ -120,6 +128,7 @@ const STEPS: Step[] = [
   },
   {
     num: 2,
+    key: "whatsapp",
     icon: Smartphone,
     title: "Conecte o WhatsApp do consultório",
     intro:
@@ -156,6 +165,7 @@ const STEPS: Step[] = [
   },
   {
     num: 3,
+    key: "contatos",
     icon: Upload,
     title: "Suba sua planilha de pacientes",
     intro:
@@ -200,6 +210,7 @@ const STEPS: Step[] = [
   },
   {
     num: 4,
+    key: "mensagem",
     icon: MessageSquare,
     title: "Escreva a mensagem de aniversário",
     intro:
@@ -232,25 +243,25 @@ const STEPS: Step[] = [
   },
   {
     num: 5,
+    key: "envio",
     icon: Send,
     title: "Ative o envio automático",
     intro: "Tudo pronto. Agora é só ligar o sistema e relaxar.",
     detalhe:
-      "Você escolhe o horário em que o sistema vai disparar as mensagens (ex: 8h da manhã). Todo dia, no horário que você escolheu, ele verifica quem faz aniversário e envia a mensagem sozinho. Você pode pausar ou alterar quando quiser.",
+      "Todos os dias, às 9h da manhã, o sistema verifica automaticamente quem faz aniversário e dispara a mensagem sozinho. Você só precisa ativar uma vez — depois disso, é piloto automático. Pode pausar ou desligar quando quiser.",
     comoFazer: [
       "Vá em 'Aniversários' → aba 'Envio'.",
-      "Escolha o horário de envio (recomendamos entre 8h e 10h).",
       "Confira o preview da mensagem que vai sair.",
       "Ative o envio automático.",
       "Acompanhe o histórico de envios na própria tela.",
     ],
-    dica: "Você pode usar o botão 'Enviar Teste' para mandar a mensagem para o seu próprio número antes — assim você confere se está tudo certo.",
+    dica: "Use o botão 'Enviar Teste' para mandar a mensagem para o seu próprio número antes — assim você confere se está tudo certo antes de liberar para os pacientes.",
     mockup: (
       <MockWindow titulo="Aniversários › Envio">
         <div className="space-y-2">
           <div className="flex items-center justify-between rounded border border-border p-2 text-[10px]">
             <span>Horário de envio</span>
-            <span className="font-semibold">08:00</span>
+            <span className="font-semibold">09:00 (fixo)</span>
           </div>
           <div className="flex items-center justify-between rounded border border-border p-2 text-[10px]">
             <span>Envio automático</span>
@@ -267,7 +278,72 @@ const STEPS: Step[] = [
   },
 ];
 
+type StepKey = Step["key"];
+
+function useStepStatus(): Record<StepKey, boolean> {
+  const { user } = useAuth();
+  const acesso = useAcessoAtivo();
+  const userId = user?.id;
+
+  const { data: instance } = useQuery({
+    queryKey: ["tutorial:instance", userId],
+    enabled: !!userId,
+    queryFn: async () => {
+      const { data } = await supabase
+        .from("whatsapp_instances")
+        .select("status")
+        .eq("user_id", userId!)
+        .maybeSingle();
+      return (data as { status?: string } | null) ?? null;
+    },
+    staleTime: 30_000,
+  });
+
+  const { data: contatosCount } = useQuery({
+    queryKey: ["tutorial:contatos-count", userId],
+    enabled: !!userId,
+    queryFn: async () => {
+      const { count } = await supabase
+        .from("contatos")
+        .select("id", { count: "exact", head: true })
+        .eq("user_id", userId!);
+      return count ?? 0;
+    },
+    staleTime: 30_000,
+  });
+
+  const { data: config } = useQuery({
+    queryKey: ["tutorial:config", userId],
+    enabled: !!userId,
+    queryFn: async () => {
+      const { data } = await supabase
+        .from("config_mensagem")
+        .select("mensagem")
+        .eq("user_id", userId!)
+        .maybeSingle();
+      return (data as { mensagem?: string | null } | null) ?? null;
+    },
+    staleTime: 30_000,
+  });
+
+  return {
+    assinatura: acesso.ativo,
+    whatsapp: instance?.status === "connected",
+    contatos: (contatosCount ?? 0) > 0,
+    mensagem: isMensagemConfigurada(config),
+    // "envio" depende de tudo acima estar OK (proxy razoável até existir flag dedicada)
+    envio:
+      acesso.ativo &&
+      instance?.status === "connected" &&
+      (contatosCount ?? 0) > 0 &&
+      isMensagemConfigurada(config),
+  };
+}
+
 function TutorialPage() {
+  const stepStatus = useStepStatus();
+  const concluidos = Object.values(stepStatus).filter(Boolean).length;
+  const total = Object.keys(stepStatus).length;
   return (
     <div className="mx-auto max-w-3xl space-y-6">
       <div className="flex flex-col items-start gap-3 sm:flex-row sm:items-center sm:justify-between">
@@ -281,7 +357,12 @@ function TutorialPage() {
             dos seus pacientes.
           </p>
         </div>
-        <Badge variant="secondary">Tempo: ~10 min</Badge>
+        <div className="flex flex-col items-end gap-2">
+          <Badge variant="secondary">Tempo: ~10 min</Badge>
+          <Badge variant={concluidos === total ? "default" : "outline"}>
+            {concluidos} de {total} concluído{concluidos === 1 ? "" : "s"}
+          </Badge>
+        </div>
       </div>
 
       {/* Visão geral */}
@@ -305,22 +386,44 @@ function TutorialPage() {
       <div className="space-y-4">
         {STEPS.map((step) => {
           const Icon = step.icon;
+          const concluido = stepStatus[step.key];
           return (
-            <Card key={step.num} className="overflow-hidden">
+            <Card
+              key={step.num}
+              className={`overflow-hidden ${concluido ? "border-primary/40" : ""}`}
+            >
               <div className="flex flex-col sm:flex-row">
                 {/* Coluna esquerda — número + ícone */}
-                <div className="flex items-center gap-3 bg-primary/5 p-4 sm:w-32 sm:flex-col sm:items-start sm:justify-start">
-                  <div className="flex h-10 w-10 items-center justify-center rounded-full bg-primary text-primary-foreground font-bold">
-                    {step.num}
+                <div
+                  className={`flex items-center gap-3 p-4 sm:w-32 sm:flex-col sm:items-start sm:justify-start ${
+                    concluido ? "bg-primary/15" : "bg-primary/5"
+                  }`}
+                >
+                  <div
+                    className={`flex h-10 w-10 items-center justify-center rounded-full font-bold ${
+                      concluido
+                        ? "bg-primary text-primary-foreground"
+                        : "bg-primary text-primary-foreground"
+                    }`}
+                  >
+                    {concluido ? <CheckCircle2 className="h-5 w-5" /> : step.num}
                   </div>
                   <Icon className="h-6 w-6 text-primary sm:h-8 sm:w-8" />
                 </div>
 
                 {/* Coluna direita — conteúdo */}
                 <div className="flex-1 p-4 sm:p-5">
-                  <h3 className="text-base font-semibold sm:text-lg">
-                    {step.title}
-                  </h3>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <h3 className="text-base font-semibold sm:text-lg">
+                      {step.title}
+                    </h3>
+                    {concluido && (
+                      <Badge className="gap-1 bg-primary/15 text-primary hover:bg-primary/20">
+                        <CheckCircle2 className="h-3 w-3" />
+                        Concluído
+                      </Badge>
+                    )}
+                  </div>
                   <p className="mt-1 text-sm text-muted-foreground">
                     {step.intro}
                   </p>

@@ -101,6 +101,7 @@ type GrupoUsuario = {
   nome_responsavel: string;
   instancias: Array<{
     instancia: string;
+    owner_number: string | null;
     linhas: LogRow[];
     total: number;
     enviados: number;
@@ -111,7 +112,10 @@ type GrupoUsuario = {
   erros: number;
 };
 
-function agrupar(rows: LogRow[]): GrupoUsuario[] {
+function agrupar(
+  rows: LogRow[],
+  ownerNumberByInstance: Map<string, string | null>,
+): GrupoUsuario[] {
   const mapUser = new Map<string, GrupoUsuario>();
 
   for (const r of rows) {
@@ -133,7 +137,14 @@ function agrupar(rows: LogRow[]): GrupoUsuario[] {
     const instKey = r.instancia ?? "—";
     let inst = u.instancias.find((i) => i.instancia === instKey);
     if (!inst) {
-      inst = { instancia: instKey, linhas: [], total: 0, enviados: 0, erros: 0 };
+      inst = {
+        instancia: instKey,
+        owner_number: ownerNumberByInstance.get(instKey) ?? null,
+        linhas: [],
+        total: 0,
+        enviados: 0,
+        erros: 0,
+      };
       u.instancias.push(inst);
     }
 
@@ -188,7 +199,33 @@ function AdminLogs() {
     staleTime: 30_000,
   });
 
-  const grupos = useMemo(() => agrupar(rows), [rows]);
+  // Busca owner_number (número conectado) de cada instância para mostrar
+  // junto do nome no painel de logs.
+  const { data: instancias = [] } = useQuery({
+    queryKey: ["admin-logs-instancias"],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("whatsapp_instances")
+        .select("instance_name, owner_number");
+      if (error) throw error;
+      return (data ?? []) as Array<{
+        instance_name: string;
+        owner_number: string | null;
+      }>;
+    },
+    staleTime: 60_000,
+  });
+
+  const ownerNumberByInstance = useMemo(() => {
+    const m = new Map<string, string | null>();
+    for (const i of instancias) m.set(i.instance_name, i.owner_number);
+    return m;
+  }, [instancias]);
+
+  const grupos = useMemo(
+    () => agrupar(rows, ownerNumberByInstance),
+    [rows, ownerNumberByInstance],
+  );
   const totalGeral = rows.reduce((s, r) => s + (r.total ?? 0), 0);
   const totalEnviados = rows.reduce((s, r) => s + (r.enviados ?? 0), 0);
   const totalErros = rows.reduce((s, r) => s + (r.erros ?? 0), 0);
@@ -326,8 +363,13 @@ function AdminLogs() {
                       {g.instancias.map((inst) => (
                         <div key={inst.instancia} className="rounded-md border bg-muted/30 p-3">
                           <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
-                            <div className="flex items-center gap-2">
+                            <div className="flex flex-col items-start gap-0.5">
                               <span className="text-sm font-semibold">📱 {inst.instancia}</span>
+                              {inst.owner_number && (
+                                <span className="font-mono text-xs text-muted-foreground">
+                                  {inst.owner_number}
+                                </span>
+                              )}
                             </div>
                             <div className="flex flex-wrap items-center gap-2 text-xs">
                               <Badge variant="outline">{inst.total} total</Badge>
