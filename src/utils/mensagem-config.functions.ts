@@ -14,6 +14,7 @@ const saveSchema = z.object({
 });
 
 const BUCKET = "imagens-whatsapp";
+const REQUEST_TIMEOUT_MS = 10000;
 
 async function getAuthed(accessToken: string) {
   const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
@@ -30,6 +31,21 @@ function sanitizeExt(name: string): string {
   const tail = name.split(".").pop() ?? "";
   const cleaned = tail.toLowerCase().replace(/[^a-z0-9]/g, "");
   return cleaned || "png";
+}
+
+async function fetchWithTimeout(input: string, init: RequestInit, label: string) {
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+  try {
+    return await fetch(input, { ...init, signal: controller.signal });
+  } catch (err) {
+    if (err instanceof Error && err.name === "AbortError") {
+      throw new Error(`${label} demorou mais que ${REQUEST_TIMEOUT_MS / 1000}s.`);
+    }
+    throw err;
+  } finally {
+    clearTimeout(timeoutId);
+  }
 }
 
 /**
@@ -69,7 +85,7 @@ export const saveMensagemConfig = createServerFn({ method: "POST" })
       if (modeloErr) throw new Error(`Erro buscando modelo: ${modeloErr.message}`);
       if (!modelo?.imagem_url) throw new Error("Modelo não encontrado.");
 
-      const resp = await fetch(modelo.imagem_url);
+      const resp = await fetchWithTimeout(modelo.imagem_url, {}, "O download da imagem do modelo");
       if (!resp.ok) throw new Error(`Falha ao baixar imagem do modelo (${resp.status})`);
       const blob = await resp.blob();
       const ext = sanitizeExt(modelo.imagem_url);
@@ -104,9 +120,20 @@ export const saveMensagemConfig = createServerFn({ method: "POST" })
     // 3) Valida acessibilidade da imagem final (HEAD do servidor — sem CORS).
     if (finalImagemUrl) {
       try {
-        const head = await fetch(finalImagemUrl, { method: "HEAD" });
-        if (!head.ok) {
-          throw new Error(`Imagem inacessível (HTTP ${head.status}): ${finalImagemUrl}`);
+        let check = await fetchWithTimeout(
+          finalImagemUrl,
+          { method: "HEAD" },
+          "A validação da imagem",
+        );
+        if (check.status === 405 || check.status === 403) {
+          check = await fetchWithTimeout(
+            finalImagemUrl,
+            { method: "GET", headers: { Range: "bytes=0-0" } },
+            "A validação da imagem",
+          );
+        }
+        if (!check.ok && check.status !== 206) {
+          throw new Error(`Imagem inacessível (HTTP ${check.status}): ${finalImagemUrl}`);
         }
       } catch (err) {
         throw new Error(
@@ -116,17 +143,15 @@ export const saveMensagemConfig = createServerFn({ method: "POST" })
     }
 
     // 4) Upsert config_mensagem.
-    const { error: cfgErr } = await supabase
-      .from("config_mensagem")
-      .upsert(
-        {
-          user_id: user.id,
-          mensagem: data.mensagem.trim(),
-          imagem_url: finalImagemUrl,
-          updated_at: new Date().toISOString(),
-        },
-        { onConflict: "user_id" },
-      );
+    const { error: cfgErr } = await supabase.from("config_mensagem").upsert(
+      {
+        user_id: user.id,
+        mensagem: data.mensagem.trim(),
+        imagem_url: finalImagemUrl,
+        updated_at: new Date().toISOString(),
+      },
+      { onConflict: "user_id" },
+    );
     if (cfgErr) throw new Error(`Erro salvando config_mensagem: ${cfgErr.message}`);
 
     // 5) Update whatsapp_instances.imagem_url.
@@ -146,11 +171,7 @@ export const saveMensagemConfig = createServerFn({ method: "POST" })
         .select("imagem_url, mensagem")
         .eq("user_id", user.id)
         .maybeSingle(),
-      supabase
-        .from("whatsapp_instances")
-        .select("imagem_url")
-        .eq("id", instance.id)
-        .maybeSingle(),
+      supabase.from("whatsapp_instances").select("imagem_url").eq("id", instance.id).maybeSingle(),
     ]);
 
     const cfgImg = cfgRead.data?.imagem_url ?? null;

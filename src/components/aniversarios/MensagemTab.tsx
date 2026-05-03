@@ -8,13 +8,7 @@ import { MessageSquare, Upload, Save, ImageIcon, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { toast } from "sonner";
 import {
   buildMensagemPreview,
@@ -28,10 +22,7 @@ import {
   assertPersistableImageUrl,
   uploadInstanceImage,
 } from "@/components/aniversarios/imagem-upload";
-import {
-  ModelosGaleria,
-  type ModeloMensagem,
-} from "@/components/aniversarios/ModelosGaleria";
+import { ModelosGaleria, type ModeloMensagem } from "@/components/aniversarios/ModelosGaleria";
 
 interface ConfigMensagem {
   id: string;
@@ -49,9 +40,7 @@ export function MensagemTab({ acessoAtivo = true }: { acessoAtivo?: boolean } = 
   const [imagemUrl, setImagemUrl] = useState<string | null>(null);
   const [localPreviewUrl, setLocalPreviewUrl] = useState<string | null>(null);
   const [pendingFile, setPendingFile] = useState<File | null>(null);
-  const [selectedModelo, setSelectedModelo] = useState<ModeloMensagem | null>(
-    null,
-  );
+  const [selectedModelo, setSelectedModelo] = useState<ModeloMensagem | null>(null);
   const [saving, setSaving] = useState(false);
   // Garante que o sync com a query só roda 1× por payload novo do servidor.
   const lastSyncedIdRef = useRef<string | null>(null);
@@ -167,10 +156,7 @@ export function MensagemTab({ acessoAtivo = true }: { acessoAtivo?: boolean } = 
   // Lista os arquivos do folder {user_id}/{instance_name}/ e apaga todos
   // que começam com "imagem." — garante que sobra apenas 1 imagem ativa
   // mesmo que a extensão mude (ex.: antes .png, agora .webp).
-  const cleanupInstanceImages = async (
-    instanceName: string,
-    exceptPath?: string,
-  ) => {
+  const cleanupInstanceImages = async (instanceName: string, exceptPath?: string) => {
     if (!user) return;
     const folder = `${user.id}/${instanceName}`;
     const { data: listData, error: listError } = await supabase.storage
@@ -182,14 +168,9 @@ export function MensagemTab({ acessoAtivo = true }: { acessoAtivo?: boolean } = 
       .map((f) => `${folder}/${f.name}`)
       .filter((p) => p !== exceptPath);
     if (toRemove.length === 0) return;
-    const { error: removeError } = await supabase.storage
-      .from("imagens-whatsapp")
-      .remove(toRemove);
+    const { error: removeError } = await supabase.storage.from("imagens-whatsapp").remove(toRemove);
     if (removeError) {
-      console.warn(
-        "[MensagemTab] falha ao limpar imagens antigas",
-        removeError,
-      );
+      console.warn("[MensagemTab] falha ao limpar imagens antigas", removeError);
     }
   };
 
@@ -198,9 +179,7 @@ export function MensagemTab({ acessoAtivo = true }: { acessoAtivo?: boolean } = 
 
     const instanceName = instanceQuery.data?.instance_name;
     if (!instanceName) {
-      throw new Error(
-        "Conecte uma instância do WhatsApp antes de enviar a imagem.",
-      );
+      throw new Error("Conecte uma instância do WhatsApp antes de enviar a imagem.");
     }
 
     // Lógica pura testada em `imagem-upload.test.ts`:
@@ -262,8 +241,7 @@ export function MensagemTab({ acessoAtivo = true }: { acessoAtivo?: boolean } = 
         } catch (uploadErr) {
           console.error("[MensagemTab] upload falhou", uploadErr);
           toast.error(
-            getAniversariosErrorMessage(uploadErr) ||
-              "Falha ao enviar a imagem. Tente novamente.",
+            getAniversariosErrorMessage(uploadErr) || "Falha ao enviar a imagem. Tente novamente.",
           );
           setSaving(false);
           return;
@@ -273,15 +251,20 @@ export function MensagemTab({ acessoAtivo = true }: { acessoAtivo?: boolean } = 
       // Server function é a fonte da verdade: salva config_mensagem +
       // whatsapp_instances.imagem_url e relê para confirmar.
       const accessToken = await getAccessToken();
-      const result = await saveMensagemConfigFn({
-        data: {
-          accessToken,
-          mensagem: mensagem.trim(),
-          // Se modelo: server baixa e re-uploada. Se upload próprio: passa URL.
-          imagemUrl: selectedModelo ? null : uploadedUrl,
-          modeloId: selectedModelo?.id ?? null,
-        },
-      });
+      const result = await withRequestTimeout(
+        saveMensagemConfigFn({
+          data: {
+            accessToken,
+            mensagem: mensagem.trim(),
+            // Evita travar copiando modelo no servidor: a URL escolhida é a
+            // fonte final salva no banco; upload próprio já foi gravado acima.
+            imagemUrl: selectedModelo?.imagem_url ?? uploadedUrl,
+            modeloId: null,
+          },
+        }),
+        "O salvamento da configuração",
+        20000,
+      );
 
       console.log("[MensagemTab] save confirmado pelo servidor:", result);
 
@@ -330,8 +313,7 @@ export function MensagemTab({ acessoAtivo = true }: { acessoAtivo?: boolean } = 
             Mensagem de Aniversário
           </CardTitle>
           <CardDescription>
-            Configure a mensagem que será enviada para seus contatos no
-            aniversário deles.
+            Configure a mensagem que será enviada para seus contatos no aniversário deles.
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
@@ -344,8 +326,8 @@ export function MensagemTab({ acessoAtivo = true }: { acessoAtivo?: boolean } = 
               placeholder="Digite sua mensagem..."
             />
             <p className="mt-1 text-xs text-muted-foreground">
-              Use <code className="rounded bg-muted px-1">{"{nome}"}</code> para
-              inserir o nome do contato automaticamente.
+              Use <code className="rounded bg-muted px-1">{"{nome}"}</code> para inserir o nome do
+              contato automaticamente.
             </p>
           </div>
 
@@ -375,12 +357,7 @@ export function MensagemTab({ acessoAtivo = true }: { acessoAtivo?: boolean } = 
                 {previewImage ? "Trocar" : "Selecionar"}
               </Button>
               {previewImage && (
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="icon"
-                  onClick={handleRemoveImage}
-                >
+                <Button type="button" variant="ghost" size="icon" onClick={handleRemoveImage}>
                   <Trash2 className="h-4 w-4" />
                 </Button>
               )}
@@ -412,9 +389,7 @@ export function MensagemTab({ acessoAtivo = true }: { acessoAtivo?: boolean } = 
       <Card>
         <CardHeader>
           <CardTitle className="text-base">Preview</CardTitle>
-          <CardDescription>
-            Como a mensagem aparecerá no WhatsApp do contato
-          </CardDescription>
+          <CardDescription>Como a mensagem aparecerá no WhatsApp do contato</CardDescription>
         </CardHeader>
         <CardContent>
           <div className="rounded-lg border bg-muted/30 p-4">
@@ -432,12 +407,8 @@ export function MensagemTab({ acessoAtivo = true }: { acessoAtivo?: boolean } = 
                   Sem imagem
                 </div>
               )}
-              <p className="whitespace-pre-wrap text-sm text-foreground">
-                {previewMsg}
-              </p>
-              <p className="mt-1 text-right text-[10px] text-muted-foreground">
-                12:34 ✓✓
-              </p>
+              <p className="whitespace-pre-wrap text-sm text-foreground">{previewMsg}</p>
+              <p className="mt-1 text-right text-[10px] text-muted-foreground">12:34 ✓✓</p>
             </div>
           </div>
           {pendingFile ? (
