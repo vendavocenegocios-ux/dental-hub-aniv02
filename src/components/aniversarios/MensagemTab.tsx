@@ -339,18 +339,28 @@ export function MensagemTab({ acessoAtivo = true }: { acessoAtivo?: boolean } = 
       // Espelha a imagem pública também em whatsapp_instances.imagem_url
       // (cada instância carrega a própria URL — consumida pelo n8n).
       const instanceId = instanceQuery.data?.id;
+      if (!instanceId && nextImagemUrl) {
+        throw new Error(
+          "Instância WhatsApp não encontrada para persistir a imagem.",
+        );
+      }
       if (instanceId) {
-        const { error: instanceUpdateError } = await withRequestTimeout(
+        const { data: updatedInstance, error: instanceUpdateError } = await withRequestTimeout(
           supabase
             .from("whatsapp_instances")
             .update({ imagem_url: nextImagemUrl })
-            .eq("id", instanceId),
+            .eq("id", instanceId)
+            .eq("user_id", user.id)
+            .select("imagem_url")
+            .single(),
           "A atualização da imagem da instância",
         );
         if (instanceUpdateError) {
-          console.error(
-            "[MensagemTab] erro ao atualizar imagem_url da instância",
-            instanceUpdateError,
+          throw instanceUpdateError;
+        }
+        if ((updatedInstance?.imagem_url ?? null) !== nextImagemUrl) {
+          throw new Error(
+            "Falha ao confirmar imagem_url na instância do WhatsApp.",
           );
         }
       }

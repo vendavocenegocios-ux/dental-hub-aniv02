@@ -22,14 +22,10 @@ function resolveWebhookUrl(modo: string | null | undefined): {
 
 const triggerSchema = z.object({
   accessToken: z.string().min(1),
-  // Obrigatórios — conforme contrato definitivo do n8n.
   nome: z.string().min(1).max(200),
   telefone: z.string().min(8).max(20),
   mensagem: z.string().min(1).max(4000),
-  // Opcionais retro-compat — IGNORADOS pelo servidor (resolve via Supabase).
   modo: z.enum(["teste", "producao"]).optional(),
-  nomeInstancia: z.string().max(200).optional(),
-  imagemUrl: z.string().max(2000).nullish(),
 });
 
 const DEFAULT_MENSAGEM = "🎂 Feliz aniversário, {nome}! 🎉";
@@ -69,14 +65,6 @@ function renderMensagem(template: string, nome: string): string {
     .trim();
 }
 
-function sanitizeImagemUrl(url: string | null | undefined): string | null {
-  if (!url) return null;
-  const trimmed = String(url).trim();
-  if (!trimmed) return null;
-  if (!/^https?:\/\//i.test(trimmed)) return null;
-  return trimmed;
-}
-
 /**
  * Aciona o webhook do n8n responsável pelo envio de teste.
  *
@@ -85,7 +73,7 @@ function sanitizeImagemUrl(url: string | null | undefined): string | null {
  * envie dados defasados/cacheados ao n8n.
  *
  * Payload final enviado ao n8n:
- *   { telefone, nome, nome_instancia, mensagem, imagem_url }
+ *   { nome, telefone, mensagem, nome_instancia, user_id, imagem_url, instancia_id, api_url, token }
  */
 export const triggerN8nTestWebhook = createServerFn({ method: "POST" })
   .inputValidator((input: z.infer<typeof triggerSchema>) =>
@@ -102,52 +90,36 @@ export const triggerN8nTestWebhook = createServerFn({ method: "POST" })
         "EVOLUTION_API_URL/EVOLUTION_API_KEY ausentes no servidor.",
       );
     }
-    const apiUrl = apiUrlRaw
-      .trim()
-      .replace(/\/+$/, "")
-      .replace(/\/manager$/i, "");
+    const apiUrl = apiUrlRaw.trim();
 
-    // 1) Instância (nome + instance_id + imagem espelhada).
+    // 1) Instância (fonte da verdade para nome, id e imagem).
     const { data: instance, error: instanceError } = await supabase
       .from("whatsapp_instances")
-      .select("id, instance_name, instance_id, imagem_url")
+      .select("instance_name, instance_id, imagem_url")
       .eq("user_id", user.id)
-      .maybeSingle();
+      .single();
 
     if (instanceError) {
-      return {
-        success: false as const,
-        error: `Erro ao buscar instância: ${instanceError.message}`,
-      };
+      throw new Error(`Erro ao buscar instância: ${instanceError.message}`);
     }
     if (!instance) {
-      return {
-        success: false as const,
-        error: "Nenhuma instância WhatsApp encontrada para este usuário.",
-      };
+      throw new Error("Nenhuma instância WhatsApp encontrada para este usuário.");
     }
 
-    const nomeInstancia =
-      data.nomeInstancia?.trim() || instance.instance_name?.trim() || "";
+    const nomeInstancia = instance.instance_name?.trim() || "";
     if (!nomeInstancia) {
-      return {
-        success: false as const,
-        error: "Instância sem nome (instance_name) — reconecte o WhatsApp.",
-      };
+      throw new Error("Instância sem nome (instance_name) — reconecte o WhatsApp.");
     }
 
-    // 2) Config da mensagem (mensagem + imagem da mensagem).
+    // 2) Config da mensagem (fonte da verdade para o template salvo).
     const { data: configMensagem, error: configError } = await supabase
       .from("config_mensagem")
-      .select("mensagem, imagem_url")
+      .select("mensagem")
       .eq("user_id", user.id)
       .maybeSingle();
 
     if (configError) {
-      return {
-        success: false as const,
-        error: `Erro ao buscar config_mensagem: ${configError.message}`,
-      };
+      throw new Error(`Erro ao buscar config_mensagem: ${configError.message}`);
     }
 
     // 3) Modo do webhook — prioridade: payload da UI > config_webhook > teste.
@@ -162,55 +134,28 @@ export const triggerN8nTestWebhook = createServerFn({ method: "POST" })
     }
     const { url: webhookUrl, modo: webhookModo } = resolveWebhookUrl(modoSalvo);
 
-    // 4) Telefone e nome — aceita override da UI.
-    if (!data.telefone) {
-      return {
-        success: false as const,
-        error: "Telefone obrigatório.",
-      };
-    }
+    // 4) Telefone e nome — dados mínimos vindos da UI.
+    if (!data.telefone) throw new Error("Telefone obrigatório.");
     let telefone: string;
     try {
       telefone = normalizePhoneServer(data.telefone);
     } catch (err) {
-      return {
-        success: false as const,
-        error: err instanceof Error ? err.message : "Telefone inválido.",
-      };
+      throw new Error(err instanceof Error ? err.message : "Telefone inválido.");
     }
     const nome = (data.nome?.trim() || "paciente").slice(0, 200);
 
-    // 5) Mensagem — UI > config_mensagem > default.
+    // 5) Mensagem — banco é fonte da verdade; UI só serve de fallback.
     const mensagemTemplate =
-      data.mensagem?.trim() ||
       configMensagem?.mensagem?.trim() ||
+      data.mensagem?.trim() ||
       DEFAULT_MENSAGEM;
     const mensagem = renderMensagem(mensagemTemplate, nome);
-    if (!mensagem) {
-      return {
-        success: false as const,
-        error: "Mensagem vazia após renderização.",
-      };
-    }
+    if (!mensagem) throw new Error("Mensagem vazia após renderização.");
 
-    // 6) Imagem — prioridade: UI > config_mensagem > whatsapp_instances.
-    const imagemUiOverride =
-      data.imagemUrl !== undefined ? sanitizeImagemUrl(data.imagemUrl) : null;
-    const imagemConfig = sanitizeImagemUrl(configMensagem?.imagem_url);
-    const imagemInstance = sanitizeImagemUrl(instance.imagem_url);
-
-    let imagemUrl: string | null = null;
-    let imagemFonte: "ui" | "config_mensagem" | "whatsapp_instances" | "none" =
-      "none";
-    if (imagemUiOverride) {
-      imagemUrl = imagemUiOverride;
-      imagemFonte = "ui";
-    } else if (imagemConfig) {
-      imagemUrl = imagemConfig;
-      imagemFonte = "config_mensagem";
-    } else if (imagemInstance) {
-      imagemUrl = imagemInstance;
-      imagemFonte = "whatsapp_instances";
+    // 6) Imagem — obrigatória e vinda da instância salva no banco.
+    const imagemUrl = String(instance.imagem_url ?? "").trim();
+    if (!imagemUrl) {
+      throw new Error("imagem_url está vazio - upload não encontrado");
     }
 
     // 7) Payload exatamente como o n8n espera (contrato definitivo).
@@ -220,11 +165,14 @@ export const triggerN8nTestWebhook = createServerFn({ method: "POST" })
       mensagem,
       nome_instancia: nomeInstancia,
       user_id: user.id,
-      imagem_url: imagemUrl ?? "",
+      imagem_url: imagemUrl,
       instancia_id: instance.instance_id ?? "",
       api_url: apiUrl,
       token: apiKey,
     };
+
+    console.log("webhookUrl:", webhookUrl);
+    console.log("Payload enviado:", { ...payload, token: "***" });
 
     // Versão sanitizada para retorno ao frontend (debug). Nunca expõe token.
     const debugPayload = {
@@ -234,8 +182,8 @@ export const triggerN8nTestWebhook = createServerFn({ method: "POST" })
       user_id: user.id,
       mensagem_preview: mensagem.slice(0, 80),
       mensagem_len: mensagem.length,
-      imagem_url: imagemUrl ?? "",
-      imagem_fonte: imagemFonte,
+      imagem_url: imagemUrl,
+      imagem_fonte: "whatsapp_instances" as const,
       instancia_id: instance.instance_id ?? "",
       api_url: apiUrl,
       token: "***",
@@ -246,7 +194,7 @@ export const triggerN8nTestWebhook = createServerFn({ method: "POST" })
       webhookUrl,
       nomeInstancia,
       hasImagem: Boolean(imagemUrl),
-      imagemFonte,
+      imagemFonte: "whatsapp_instances",
     });
 
     try {
@@ -258,6 +206,7 @@ export const triggerN8nTestWebhook = createServerFn({ method: "POST" })
 
       const text = await res.text();
 
+      console.log("response.status do webhook:", res.status);
       console.info("[n8n-webhook] resposta", {
         modo: webhookModo,
         status: res.status,
