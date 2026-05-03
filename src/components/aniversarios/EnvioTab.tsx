@@ -489,12 +489,9 @@ export function EnvioTab({ acessoAtivo = true }: { acessoAtivo?: boolean } = {})
         triggerN8nTestWebhookFn({
           data: {
             accessToken,
-            modo: webhookModo,
             nome,
             telefone: phone,
-            nomeInstancia: instanceName,
             mensagem: finalMessage,
-            imagemUrl,
           },
         }),
         "O acionamento do webhook de teste",
