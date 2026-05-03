@@ -4,10 +4,13 @@ import { z } from "zod";
 
 import { SUPABASE_ANON_KEY, SUPABASE_URL } from "@/integrations/supabase/client";
 
+// Path do n8n alinhado com o projeto de origem (Dental Hub Dashboard).
+// O UUID antigo (1a26f671-...) não existe no n8n e retornava 404
+// "webhook is not registered". Mantemos o path "enviar-teste" registrado.
 const N8N_TEST_WEBHOOK_URL =
-  "https://n8n.vendavocenegocios.com.br/webhook-test/1a26f671-f9b2-4c65-b6a2-33000350a7a4";
+  "https://n8n.vendavocenegocios.com.br/webhook-test/enviar-teste";
 const N8N_PROD_WEBHOOK_URL =
-  "https://webhook.vendavocenegocios.com.br/webhook/1a26f671-f9b2-4c65-b6a2-33000350a7a4";
+  "https://webhook.vendavocenegocios.com.br/webhook/enviar-teste";
 
 function resolveWebhookUrl(modo: string | null | undefined): {
   url: string;

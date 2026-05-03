@@ -93,11 +93,10 @@ export function EnvioTab({ acessoAtivo = true }: { acessoAtivo?: boolean } = {})
   const [webhookModo, setWebhookModo] = useState<"teste" | "producao">("teste");
   const [savingWebhook, setSavingWebhook] = useState(false);
 
+  // Mantido em sincronia com src/utils/n8n-webhook.functions.ts.
   const WEBHOOK_URLS = {
-    teste:
-      "https://n8n.vendavocenegocios.com.br/webhook-test/1a26f671-f9b2-4c65-b6a2-33000350a7a4",
-    producao:
-      "https://webhook.vendavocenegocios.com.br/webhook/1a26f671-f9b2-4c65-b6a2-33000350a7a4",
+    teste: "https://n8n.vendavocenegocios.com.br/webhook-test/enviar-teste",
+    producao: "https://webhook.vendavocenegocios.com.br/webhook/enviar-teste",
   } as const;
 
   const getAccessToken = useCallback(async () => {
