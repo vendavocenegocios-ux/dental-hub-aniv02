@@ -273,15 +273,20 @@ export function MensagemTab({ acessoAtivo = true }: { acessoAtivo?: boolean } = 
       // Server function é a fonte da verdade: salva config_mensagem +
       // whatsapp_instances.imagem_url e relê para confirmar.
       const accessToken = await getAccessToken();
-      const result = await saveMensagemConfigFn({
-        data: {
-          accessToken,
-          mensagem: mensagem.trim(),
-          // Se modelo: server baixa e re-uploada. Se upload próprio: passa URL.
-          imagemUrl: selectedModelo ? null : uploadedUrl,
-          modeloId: selectedModelo?.id ?? null,
-        },
-      });
+      const result = await withRequestTimeout(
+        saveMensagemConfigFn({
+          data: {
+            accessToken,
+            mensagem: mensagem.trim(),
+            // Evita travar copiando modelo no servidor: a URL escolhida é a
+            // fonte final salva no banco; upload próprio já foi gravado acima.
+            imagemUrl: selectedModelo?.imagem_url ?? uploadedUrl,
+            modeloId: null,
+          },
+        }),
+        "O salvamento da configuração",
+        20000,
+      );
 
       console.log("[MensagemTab] save confirmado pelo servidor:", result);
 
