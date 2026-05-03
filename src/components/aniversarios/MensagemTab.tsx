@@ -83,11 +83,20 @@ export function MensagemTab({ acessoAtivo = true }: { acessoAtivo?: boolean } = 
 
   const config = configQuery.data ?? null;
 
-  // Sincroniza o estado local com a config carregada (apenas quando muda
-  // o registro que veio do servidor — não a cada render).
+  // Sincroniza o estado local com a config vinda do servidor.
+  // Guard usa id+imagem_url+mensagem (não só id) — assim, quando o
+  // mesmo registro recebe nova imagem, o sync acontece com os dados
+  // frescos e nunca faz rollback do que acabou de ser salvo.
+  // Também: se há pendingFile/selectedModelo (alteração não salva),
+  // NUNCA sobrescreve o estado local com o que veio do servidor.
   useEffect(() => {
     if (configQuery.isLoading) return;
-    const key = config?.id ?? "__none__";
+    if (configQuery.isFetching) return; // espera dados realmente frescos
+    if (pendingFile || selectedModelo) return; // não atropela edição local
+
+    const key = config
+      ? `${config.id}::${config.imagem_url ?? ""}::${config.mensagem ?? ""}`
+      : "__none__";
     if (lastSyncedIdRef.current === key) return;
     lastSyncedIdRef.current = key;
 
@@ -98,12 +107,11 @@ export function MensagemTab({ acessoAtivo = true }: { acessoAtivo?: boolean } = 
       setMensagem(DEFAULT_MENSAGEM_ANIVERSARIO);
       setImagemUrl(null);
     }
-    setPendingFile(null);
     setLocalPreviewUrl((current) => {
       if (current?.startsWith("blob:")) URL.revokeObjectURL(current);
       return null;
     });
-  }, [config, configQuery.isLoading]);
+  }, [config, configQuery.isLoading, configQuery.isFetching, pendingFile, selectedModelo]);
 
   useEffect(() => {
     if (configQuery.error) {
