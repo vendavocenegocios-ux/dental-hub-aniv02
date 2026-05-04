@@ -123,7 +123,19 @@ export function MensagemTab({ acessoAtivo = true }: { acessoAtivo?: boolean } = 
 
   const handleUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
-    if (!file || !user) return;
+    console.log("[MensagemTab] FILE SELECIONADO:", file, {
+      name: file?.name,
+      size: file?.size,
+      type: file?.type,
+    });
+    if (!file) {
+      console.warn("[MensagemTab] handleUpload: nenhum arquivo no input");
+      return;
+    }
+    if (!user) {
+      console.warn("[MensagemTab] handleUpload: usuário não autenticado");
+      return;
+    }
 
     if (!file.type.startsWith("image/")) {
       toast.error("Selecione um arquivo de imagem");
@@ -140,9 +152,13 @@ export function MensagemTab({ acessoAtivo = true }: { acessoAtivo?: boolean } = 
     });
     setPendingFile(file);
     setSelectedModelo(null);
+    console.log("[MensagemTab] setPendingFile chamado com:", file.name, file.size);
     toast.success("Imagem selecionada! Clique em Salvar para confirmar.");
 
-    if (fileRef.current) fileRef.current.value = "";
+    // NÃO resetamos fileRef.current.value aqui — o reset estava
+    // acontecendo síncronamente e podia, em alguns navegadores,
+    // disparar um segundo onChange com files vazio antes do React
+    // commitar o setPendingFile. Resetamos somente após salvar.
   };
 
   const handleSelectModelo = (modelo: ModeloMensagem) => {
@@ -197,6 +213,8 @@ export function MensagemTab({ acessoAtivo = true }: { acessoAtivo?: boolean } = 
     }
   };
 
+
+  console.log("[MensagemTab] render - pendingFile atual:", pendingFile?.name ?? null, "selectedModelo:", selectedModelo?.id ?? null, "imagemUrl:", imagemUrl);
 
   const handleSave = async () => {
     // ===== VALIDAÇÕES OBRIGATÓRIAS =====
@@ -364,6 +382,7 @@ export function MensagemTab({ acessoAtivo = true }: { acessoAtivo?: boolean } = 
 
       setPendingFile(null);
       setSelectedModelo(null);
+      if (fileRef.current) fileRef.current.value = "";
       setLocalPreviewUrl((current) => {
         if (current?.startsWith("blob:")) URL.revokeObjectURL(current);
         return null;
