@@ -261,6 +261,9 @@ export const triggerN8nTestWebhook = createServerFn({ method: "POST" })
 
     return {
       success: !!response,
+      error: errorMsg ?? (!response ? `Falha ao chamar webhook n8n (${webhookModo})` : null),
+      status: response?.status ?? null,
+      webhookUrl,
       debug: {
         webhookUrl,
         status: response?.status ?? null,
