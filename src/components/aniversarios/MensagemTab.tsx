@@ -121,9 +121,11 @@ export function MensagemTab({ acessoAtivo = true }: { acessoAtivo?: boolean } = 
     };
   }, [localPreviewUrl]);
 
-  const handleUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    console.log("[MensagemTab] FILE SELECIONADO:", file, {
+  const handleUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0] ?? null;
+    console.log("ARQUIVO SELECIONADO:", file);
+    setPendingFile(file);
+    console.log("[MensagemTab] ARQUIVO SELECIONADO detalhes:", file, {
       name: file?.name,
       size: file?.size,
       type: file?.type,
@@ -138,10 +140,12 @@ export function MensagemTab({ acessoAtivo = true }: { acessoAtivo?: boolean } = 
     }
 
     if (!file.type.startsWith("image/")) {
+      setPendingFile(null);
       toast.error("Selecione um arquivo de imagem");
       return;
     }
     if (file.size > 5 * 1024 * 1024) {
+      setPendingFile(null);
       toast.error("Imagem muito grande (máx 5MB)");
       return;
     }
@@ -150,7 +154,6 @@ export function MensagemTab({ acessoAtivo = true }: { acessoAtivo?: boolean } = 
       if (current?.startsWith("blob:")) URL.revokeObjectURL(current);
       return URL.createObjectURL(file);
     });
-    setPendingFile(file);
     setSelectedModelo(null);
     console.log("[MensagemTab] setPendingFile chamado com:", file.name, file.size);
     toast.success("Imagem selecionada! Clique em Salvar para confirmar.");
@@ -214,6 +217,7 @@ export function MensagemTab({ acessoAtivo = true }: { acessoAtivo?: boolean } = 
   };
 
 
+  console.log("pendingFile atual:", pendingFile);
   console.log("[MensagemTab] render - pendingFile atual:", pendingFile?.name ?? null, "selectedModelo:", selectedModelo?.id ?? null, "imagemUrl:", imagemUrl);
 
   const handleSave = async () => {
