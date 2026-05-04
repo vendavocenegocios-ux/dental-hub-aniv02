@@ -1,9 +1,7 @@
 import { useState, useEffect, useRef } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { useServerFn } from "@tanstack/react-start";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/use-auth";
-import { saveMensagemConfig } from "@/utils/mensagem-config.functions";
 import { MessageSquare, Upload, Save, ImageIcon, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
@@ -18,10 +16,6 @@ import {
   getAniversariosErrorMessage,
   withRequestTimeout,
 } from "@/components/aniversarios/request-utils";
-import {
-  assertPersistableImageUrl,
-  uploadInstanceImage,
-} from "@/components/aniversarios/imagem-upload";
 import { ModelosGaleria, type ModeloMensagem } from "@/components/aniversarios/ModelosGaleria";
 
 interface ConfigMensagem {
