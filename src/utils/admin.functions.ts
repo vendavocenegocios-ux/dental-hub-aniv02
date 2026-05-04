@@ -562,3 +562,62 @@ export const adminToggleCortesia = createServerFn({ method: "POST" })
     if (error) throw new Error(error.message);
     return { userId: data.userId, acessoCortesia: data.acessoCortesia };
   });
+
+// ============================================================
+// adminLogoutInstance — desconecta a instância na Evolution API,
+// SEM apagar o registro no banco. O instance_name continua igual
+// e pode ser reconectado depois.
+// ============================================================
+export const adminLogoutInstance = createServerFn({ method: "POST" })
+  .inputValidator(
+    z.object({
+      accessToken: z.string().min(1),
+      instanceName: z.string().min(1),
+    }),
+  )
+  .handler(async ({ data }) => {
+    await requireAdmin(data.accessToken);
+    const baseUrl = process.env.EVOLUTION_API_URL;
+    const apiKey = process.env.EVOLUTION_API_KEY;
+    if (!baseUrl || !apiKey) throw new Error("Evolution API não configurada");
+    const cleaned = baseUrl.replace(/\/+$/, "");
+    const url = `${cleaned}/instance/logout/${encodeURIComponent(data.instanceName)}`;
+    const res = await fetch(url, { method: "DELETE", headers: { apikey: apiKey } });
+    const text = await res.text();
+    console.log("[admin] logout ←", res.status, text.slice(0, 200));
+
+    const admin = getSupabaseAdmin();
+    await admin
+      .from("whatsapp_instances")
+      .update({ status: "disconnected", updated_at: new Date().toISOString() })
+      .eq("instance_name", data.instanceName);
+
+    return { ok: res.ok, status: res.status, body: text.slice(0, 500) };
+  });
+
+// ============================================================
+// adminReconnectInstance — força reconexão (gera novo QR)
+// na MESMA instância. Não recria.
+// ============================================================
+export const adminReconnectInstance = createServerFn({ method: "POST" })
+  .inputValidator(
+    z.object({
+      accessToken: z.string().min(1),
+      instanceName: z.string().min(1),
+    }),
+  )
+  .handler(async ({ data }) => {
+    await requireAdmin(data.accessToken);
+    const baseUrl = process.env.EVOLUTION_API_URL;
+    const apiKey = process.env.EVOLUTION_API_KEY;
+    if (!baseUrl || !apiKey) throw new Error("Evolution API não configurada");
+    const cleaned = baseUrl.replace(/\/+$/, "");
+    const url = `${cleaned}/instance/connect/${encodeURIComponent(data.instanceName)}`;
+    const res = await fetch(url, { headers: { apikey: apiKey } });
+    const text = await res.text();
+    console.log("[admin] reconnect ←", res.status, text.slice(0, 200));
+    let body: unknown = text;
+    try { body = JSON.parse(text); } catch { /* keep text */ }
+    return { ok: res.ok, status: res.status, data: body };
+  });
+
