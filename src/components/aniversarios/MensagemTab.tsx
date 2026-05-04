@@ -380,6 +380,7 @@ export function MensagemTab({ acessoAtivo = true }: { acessoAtivo?: boolean } = 
 
       setPendingFile(null);
       setSelectedModelo(null);
+      if (fileRef.current) fileRef.current.value = "";
       setLocalPreviewUrl((current) => {
         if (current?.startsWith("blob:")) URL.revokeObjectURL(current);
         return null;
