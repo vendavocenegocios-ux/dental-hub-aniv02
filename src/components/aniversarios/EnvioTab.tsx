@@ -434,19 +434,26 @@ export function EnvioTab({ acessoAtivo = true }: { acessoAtivo?: boolean } = {})
     : null;
 
   const handleSend = async () => {
+    console.log("ENVIO DISPARADO");
     console.log("[EnvioTab] handleSend chamado", {
+      hasUser: !!user,
+      userId: user?.id,
       instanceName,
       instanceStatus,
       hasConfig: isMensagemConfigurada(config),
       acessoAtivo,
       selectedContato,
       customPhone,
+      customNome,
+      sending,
     });
     if (!user) {
+      console.warn("[EnvioTab] ABORT: sem user (sessão)");
       toast.error("Sessão expirada. Faça login novamente.");
       return;
     }
     if (!instanceName) {
+      console.warn("[EnvioTab] ABORT: instanceName vazio");
       toast.error("Conecte o WhatsApp primeiro");
       return;
     }
