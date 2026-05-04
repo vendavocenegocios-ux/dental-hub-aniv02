@@ -176,27 +176,6 @@ export function MensagemTab({ acessoAtivo = true }: { acessoAtivo?: boolean } = 
     }
   };
 
-  const uploadPendingFile = async () => {
-    if (!user || !pendingFile) return imagemUrl;
-
-    const instanceName = instanceQuery.data?.instance_name;
-    if (!instanceName) {
-      throw new Error("Conecte uma instância do WhatsApp antes de enviar a imagem.");
-    }
-
-    // Lógica pura testada em `imagem-upload.test.ts`:
-    // path estável por instância + upsert + cleanup + cache-buster.
-    return withRequestTimeout(
-      uploadInstanceImage({
-        userId: user.id,
-        instanceName,
-        file: pendingFile,
-        storage: supabase.storage,
-      }),
-      "O upload da imagem",
-    );
-  };
-
   const handleRemoveImage = async () => {
     setLocalPreviewUrl((current) => {
       if (current?.startsWith("blob:")) URL.revokeObjectURL(current);
