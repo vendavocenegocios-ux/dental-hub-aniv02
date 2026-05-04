@@ -197,12 +197,6 @@ export function MensagemTab({ acessoAtivo = true }: { acessoAtivo?: boolean } = 
     }
   };
 
-  const getAccessToken = async () => {
-    const { data } = await supabase.auth.getSession();
-    const token = data.session?.access_token;
-    if (!token) throw new Error("Sessão expirada. Faça login novamente.");
-    return token;
-  };
 
   const handleSave = async () => {
     // ===== VALIDAÇÕES OBRIGATÓRIAS =====
