@@ -1,90 +1,45 @@
-A solução direta é parar de depender do salvamento feito pelo frontend e centralizar o fluxo crítico no servidor. Hoje existem dois pontos frágeis: a imagem selecionada/modelo fica só no estado visual até o save completar, e o envio de teste ainda pode ser bloqueado antes de chegar na server function. Vou corrigir isso tornando o servidor a fonte de verdade tanto para salvar a imagem quanto para montar/disparar o webhook.
+## Objetivo
 
-Plano de correção
+Confirmar se o ambiente onde a server function roda (Cloudflare Worker SSR via TanStack Start, deployado em Vercel/Lovable) consegue de fato fazer requisições HTTPS externas — em especial para `n8n.vendavocenegocios.com.br`. O sintoma atual é: `ANTES DO FETCH` aparece, mas `DEPOIS DO FETCH` nunca, e o cliente recebe 504.
 
-1. Criar uma server function para salvar a configuração da mensagem
-- Criar `saveMensagemConfig` em arquivo de server function.
-- Ela receberá apenas dados mínimos do frontend: texto da mensagem e, quando for modelo, a URL/id do modelo; quando for upload próprio, manteremos o upload via Storage no cliente, mas a confirmação no banco será feita no servidor.
-- O servidor validará o usuário pelo `accessToken`.
-- O servidor buscará a instância atual em `whatsapp_instances`.
-- O servidor salvará/confirmará a imagem_url em dois lugares, de forma atômica na prática do fluxo:
-  - `config_mensagem.imagem_url`
-  - `whatsapp_instances.imagem_url`
-- Depois do save, a função retornará a URL realmente gravada no banco. A UI só mostrará “Mensagem salva” se essa confirmação voltar correta.
+## Plano
 
-2. Corrigir especificamente o caso dos modelos da galeria
-- Ao escolher uma imagem pronta, ela não pode ficar apenas como preview.
-- No salvar, a imagem do modelo será copiada/persistida para o bucket `imagens-whatsapp` no caminho do usuário/instância.
-- A URL pública nova, com cache-buster, será gravada no banco.
-- Isso evita o comportamento atual: “parece salvar, mas ao voltar aparece a imagem anterior”.
+### 1. Criar server function de diagnóstico de rede
+Arquivo novo: `src/utils/network-diagnostic.functions.ts`
 
-3. Tornar o botão “Salvar Configuração” realmente bloqueante e verificável
-- Após salvar, invalidar/refazer as queries.
-- Recarregar imediatamente `config_mensagem` e `whatsapp_instances` do Supabase.
-- Comparar se as duas tabelas possuem a mesma `imagem_url` salva.
-- Se não bater, mostrar erro claro e não limpar a alteração local.
-- Se bater, limpar `pendingFile/selectedModelo` e manter a imagem salva como preview definitivo.
+Server function `diagnoseNetwork` que executa, em paralelo e cada um com timeout próprio de 8s via `AbortController`, os seguintes testes:
 
-4. Corrigir o envio de teste para nunca montar payload no frontend
-- O botão “Enviar Teste” continuará enviando apenas:
-  - `nome`
-  - `telefone`
-  - `mensagem` como fallback mínimo, se necessário
-  - `accessToken`
-  - `modo`
-- A server function `triggerN8nTestWebhook` buscará no banco, no momento do clique:
-  - `whatsapp_instances.instance_name`
-  - `whatsapp_instances.instance_id`
-  - `whatsapp_instances.imagem_url`
-  - `config_mensagem.mensagem`
-  - `config_webhook.modo`
-- Se `imagem_url` não existir ou estiver inacessível, o servidor retornará erro explícito antes do webhook.
+- `GET https://www.google.com/generate_204` (sanity check de egress geral)
+- `GET https://1.1.1.1` (egress por IP — descarta DNS)
+- `HEAD https://n8n.vendavocenegocios.com.br` (DNS + TLS + alcance ao host n8n)
+- `HEAD https://n8n.vendavocenegocios.com.br/webhook-test/1a26f671-f9b2-4c65-b6a2-33000350a7a4` (rota exata do webhook de teste)
+- `HEAD https://webhook.vendavocenegocios.com.br/webhook/1a26f671-f9b2-4c65-b6a2-33000350a7a4` (rota exata do webhook de produção)
 
-5. Remover bloqueios frágeis do frontend que impedem o webhook de ser chamado sem diagnóstico
-- Manter validações básicas de sessão/telefone.
-- Tirar do frontend a validação pesada de imagem por `HEAD`, porque isso pode falhar por CORS/rede e impedir o disparo antes de chegar ao servidor.
-- A validação da imagem será feita dentro da server function, com logs centralizados.
-- Assim, quando falhar, teremos resposta/log real da server function dizendo exatamente o motivo.
+Para cada teste registra: `url`, `ok`, `status`, `durationMs`, `error` (mensagem + nome — `AbortError`, `TypeError`, etc.). Tudo em `console.log` no servidor e devolvido no retorno para a UI.
 
-6. Adicionar logs de auditoria no servidor
-Na server function do webhook, logar obrigatoriamente:
-- `webhookUrl`
-- payload completo sanitizado, com `token` mascarado
-- `imagem_url` usada
-- fonte da imagem: `whatsapp_instances`
-- `response.status` do n8n
-- corpo parcial da resposta do n8n
+### 2. Botão temporário “Diagnosticar rede” na aba Envio
+Em `src/components/aniversarios/EnvioTab.tsx`, adicionar um botão discreto ao lado de “Enviar Teste” que chama `diagnoseNetwork` e mostra o resultado num toast + `console.table`. Sem alterar o fluxo existente do envio.
 
-Na server function de salvar mensagem, logar:
-- usuário
-- instância encontrada
-- URL recebida/gerada
-- confirmação de gravação em `config_mensagem`
-- confirmação de gravação em `whatsapp_instances`
+### 3. Executar e coletar evidências
+Após o deploy:
+- Clicar no botão e capturar o resultado.
+- Rodar `stack_modern--server-function-logs` filtrando por `network-diagnostic` para ver os logs do servidor.
+- Também invocar a server function direto via `stack_modern--invoke-server-function` para confirmar fora da UI.
 
-7. Verificar/ajustar RLS e bucket se necessário
-- Conferir se o bucket `imagens-whatsapp` é público.
-- Conferir policies de insert/update/delete para o usuário gravar dentro da pasta `{user_id}/...`.
-- Se as policies atuais estiverem impedindo upload/update, criar uma migração SQL idempotente para corrigir.
-- Isso é importante porque um clique em “Salvar” pode parecer funcionar na UI, mas o Supabase pode estar negando a escrita por RLS.
+### 4. Interpretação dos resultados (já com remediação pronta)
 
-Resultado esperado após a correção
+- **Todos os testes falham (incluindo Google/1.1.1.1):** egress totalmente bloqueado no runtime. Remediação: mover o disparo do webhook para fora do Worker — usar uma fila no Supabase (`webhook_queue`) consumida por um worker externo (pg_cron + endpoint `/api/public/process-webhook-queue`, ou n8n fazendo polling). Padrão recomendado pelo Stack Overflow knowledge.
+- **Google OK, n8n falha por timeout/`fetch failed`:** problema específico de rota/egress para esse host (provavelmente IP do VPS bloqueando o range do Worker, ou Cloudflare em modo de ataque). Remediação: liberar User-Agent/IP do Worker no firewall do VPS, ou expor o n8n via Cloudflare Tunnel.
+- **Google OK, n8n falha por DNS (`ENOTFOUND`/`getaddrinfo`):** DNS não resolve no runtime. Remediação: usar IP direto + header `Host`, ou apontar webhook para um domínio Cloudflare.
+- **n8n responde mas com 401/403/404:** não é rede — é configuração do workflow no n8n (não está “Listen for test event” / não está ativo).
+- **Tudo OK:** o problema é específico do POST com body grande ou do fluxo n8n travando antes de responder. Remediação: enviar o disparo de forma fire-and-forget (responder ao cliente antes do n8n terminar) ou aumentar o timeout/dividir o trabalho.
 
-- Ao escolher a segunda imagem e clicar em “Salvar Configuração”, ela fica gravada de verdade.
-- Ao sair da aba e voltar, a imagem continua sendo a segunda imagem, não volta para a anterior.
-- `config_mensagem.imagem_url` e `whatsapp_instances.imagem_url` ficam sincronizadas.
-- O botão “Enviar Teste” chama a server function sempre que telefone/sessão forem válidos.
-- O payload enviado ao n8n sempre conterá `imagem_url` preenchido.
-- Se algo bloquear o fluxo, a tela e os logs dirão exatamente onde: upload, gravação no banco, imagem inacessível, ou resposta do n8n.
+### 5. Limpeza
+Quando o problema estiver identificado e corrigido, remover o botão de diagnóstico (ou deixá-lo apenas no painel admin).
 
-Arquivos que serão alterados
+## Arquivos afetados
+- `src/utils/network-diagnostic.functions.ts` (novo)
+- `src/components/aniversarios/EnvioTab.tsx` (botão de diagnóstico)
 
-- `src/components/aniversarios/MensagemTab.tsx`
-- `src/components/aniversarios/EnvioTab.tsx`
-- `src/utils/n8n-webhook.functions.ts`
-- Novo server function para salvar configuração, ou expansão controlada de uma server function existente
-- Possível nova migração SQL se for confirmado problema de RLS/bucket
-
-Observação direta
-
-Pelas telas e pelo código, o problema mais provável é que o preview está mudando localmente, mas a URL persistida no Supabase não está sendo confirmada de forma confiável antes de limpar o estado e dizer “salvo”. O envio de teste depende dessa URL em `whatsapp_instances.imagem_url`; se ela não muda ou está vazia/inacessível, o fluxo do webhook quebra. A correção é fazer o save ser confirmado pelo servidor e só permitir o envio quando o banco tiver a imagem correta.
+## Resultado esperado
+Em até 1 ciclo de teste, teremos a causa-raiz com evidência concreta (status/erro por host) e a próxima ação correta — em vez de continuar trocando logs no fetch do webhook.
