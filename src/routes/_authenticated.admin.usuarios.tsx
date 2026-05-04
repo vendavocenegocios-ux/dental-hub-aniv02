@@ -491,6 +491,38 @@ function AdminUsuarios() {
           )}
         </DialogContent>
       </Dialog>
+
+      <Dialog open={!!qrDialog} onOpenChange={() => setQrDialog(null)}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <QrCode className="h-5 w-5" />
+              Reconectar instância
+            </DialogTitle>
+            <DialogDescription>
+              {qrDialog?.instance} — HTTP {qrDialog?.status}
+            </DialogDescription>
+          </DialogHeader>
+          {qrDialog?.qr ? (
+            <div className="flex flex-col items-center gap-2">
+              <div className="rounded-lg border bg-white p-3">
+                <img
+                  src={qrDialog.qr.startsWith("data:") ? qrDialog.qr : `data:image/png;base64,${qrDialog.qr}`}
+                  alt="QR Code"
+                  className="h-64 w-64"
+                />
+              </div>
+              <p className="text-xs text-muted-foreground">
+                Peça ao cliente que escaneie o QR no WhatsApp.
+              </p>
+            </div>
+          ) : (
+            <pre className="max-h-64 overflow-auto rounded bg-muted p-3 text-xs">
+              {qrDialog?.body || "Sem QR retornado pela Evolution."}
+            </pre>
+          )}
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
