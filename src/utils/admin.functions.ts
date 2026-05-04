@@ -342,6 +342,8 @@ export const adminUsuarios = createServerFn({ method: "POST" })
     const ids = (profiles ?? []).map((p) => p.id);
     const contatosCount: Record<string, number> = {};
     const whatsappStatus: Record<string, string> = {};
+    const instanceNameMap: Record<string, string> = {};
+    const ownerNumberMap: Record<string, string | null> = {};
     const planoStatus: Record<string, string> = {};
 
     if (ids.length > 0) {
@@ -349,7 +351,7 @@ export const adminUsuarios = createServerFn({ method: "POST" })
         supabase.from("contatos").select("user_id").in("user_id", ids),
         supabase
           .from("whatsapp_instances")
-          .select("user_id, status")
+          .select("user_id, status, instance_name, owner_number")
           .in("user_id", ids),
         supabase
           .from("assinaturas")
@@ -359,8 +361,15 @@ export const adminUsuarios = createServerFn({ method: "POST" })
       for (const c of contatosRes.data ?? []) {
         contatosCount[c.user_id] = (contatosCount[c.user_id] ?? 0) + 1;
       }
-      for (const i of instRes.data ?? []) {
+      for (const i of (instRes.data ?? []) as Array<{
+        user_id: string;
+        status: string;
+        instance_name: string;
+        owner_number: string | null;
+      }>) {
         whatsappStatus[i.user_id] = i.status;
+        instanceNameMap[i.user_id] = i.instance_name;
+        ownerNumberMap[i.user_id] = i.owner_number ?? null;
       }
       for (const a of assinRes.data ?? []) {
         if (a.status === "ativa" || a.status === "trial") {
@@ -375,6 +384,8 @@ export const adminUsuarios = createServerFn({ method: "POST" })
         ...p,
         contatos: contatosCount[p.id] ?? 0,
         whatsapp_status: whatsappStatus[p.id] ?? "desconectado",
+        instance_name: instanceNameMap[p.id] ?? null,
+        owner_number: ownerNumberMap[p.id] ?? null,
         plano: planoStatus[p.id] ?? "Gratuito",
       })),
     };
