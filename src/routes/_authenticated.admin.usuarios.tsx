@@ -5,6 +5,9 @@ import { useAuth } from "@/hooks/use-auth";
 import {
   adminUsuarios,
   adminToggleCortesia,
+  adminRefreshInstanceStatus,
+  adminLogoutInstance,
+  adminReconnectInstance,
 } from "@/utils/admin.functions";
 import {
   Search,
@@ -13,6 +16,9 @@ import {
   Loader2,
   Phone,
   Gift,
+  RefreshCw,
+  LogOut,
+  QrCode,
 } from "lucide-react";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -33,6 +39,7 @@ import {
   DialogContent,
   DialogHeader,
   DialogTitle,
+  DialogDescription,
 } from "@/components/ui/dialog";
 import { toast } from "sonner";
 import { formatDateBR } from "@/lib/date-format";
@@ -45,6 +52,8 @@ interface UsuarioRow {
   created_at: string;
   contatos: number;
   whatsapp_status: string;
+  instance_name: string | null;
+  owner_number: string | null;
   plano: string;
   nome_responsavel: string | null;
   nome_clinica: string | null;
