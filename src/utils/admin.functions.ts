@@ -616,8 +616,8 @@ export const adminReconnectInstance = createServerFn({ method: "POST" })
     const res = await fetch(url, { headers: { apikey: apiKey } });
     const text = await res.text();
     console.log("[admin] reconnect ←", res.status, text.slice(0, 200));
-    let body: unknown = text;
-    try { body = JSON.parse(text); } catch { /* keep text */ }
-    return { ok: res.ok, status: res.status, data: body };
+    let bodyJson: Record<string, unknown> | null = null;
+    try { bodyJson = JSON.parse(text) as Record<string, unknown>; } catch { /* keep null */ }
+    return { ok: res.ok, status: res.status, body: text.slice(0, 1000), bodyJson };
   });
 
