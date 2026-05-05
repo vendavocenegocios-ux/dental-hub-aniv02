@@ -8,6 +8,8 @@ import {
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { AuthProvider } from "@/hooks/use-auth";
 import { UpdateBanner } from "@/components/UpdateBanner";
+import { PWAInstallPrompt } from "@/components/PWAInstallPrompt";
+import { Toaster } from "@/components/ui/sonner";
 import appCss from "../styles.css?url";
 
 const FB_PIXEL_ID = "1873464756626259";
@@ -53,6 +55,10 @@ export const Route = createRootRouteWithContext<RouterContext>()({
     meta: [
       { charSet: "utf-8" },
       { name: "viewport", content: "width=device-width, initial-scale=1" },
+      { name: "theme-color", content: "#000000" },
+      { name: "apple-mobile-web-app-capable", content: "yes" },
+      { name: "apple-mobile-web-app-title", content: "Dental Hub" },
+      { name: "apple-mobile-web-app-status-bar-style", content: "black-translucent" },
       { title: "Dental Hub — Automações de WhatsApp" },
       { name: "description", content: "Plataforma SaaS de automações de WhatsApp para clínicas odontológicas." },
       { property: "og:title", content: "Dental Hub" },
@@ -61,6 +67,9 @@ export const Route = createRootRouteWithContext<RouterContext>()({
     ],
     links: [
       { rel: "stylesheet", href: appCss },
+      { rel: "manifest", href: "/manifest.json" },
+      { rel: "icon", type: "image/png", href: "/favicon.png" },
+      { rel: "apple-touch-icon", href: "/apple-touch-icon.png" },
       { rel: "preconnect", href: "https://fonts.googleapis.com" },
       { rel: "preconnect", href: "https://fonts.gstatic.com", crossOrigin: "anonymous" },
       { rel: "stylesheet", href: "https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" },
@@ -101,7 +110,9 @@ function RootComponent() {
     <QueryClientProvider client={queryClient}>
       <AuthProvider>
         <Outlet />
+        <PWAInstallPrompt />
         <UpdateBanner />
+        <Toaster richColors position="top-right" />
       </AuthProvider>
     </QueryClientProvider>
   );
