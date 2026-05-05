@@ -64,7 +64,7 @@ export const Route = createFileRoute("/_authenticated/admin/logs")({
   component: AdminLogs,
 });
 
-type FiltroPeriodo = "mes" | "ano" | "personalizado";
+type FiltroPeriodo = "7d" | "30d" | "personalizado";
 
 type LogRow = {
   user_id: string | null;
@@ -80,35 +80,21 @@ type LogRow = {
 
 function getRange(
   periodo: FiltroPeriodo,
-  mes: number,
-  ano: number,
   custom?: { from?: Date; to?: Date },
 ) {
+  const now = new Date();
   if (periodo === "personalizado") {
-    const now = new Date();
     const from = custom?.from ?? new Date(now.getFullYear(), now.getMonth(), 1);
     const to = custom?.to ?? now;
-    const i = new Date(from);
-    i.setHours(0, 0, 0, 0);
-    const f = new Date(to);
-    f.setHours(23, 59, 59, 999);
+    const i = new Date(from); i.setHours(0, 0, 0, 0);
+    const f = new Date(to); f.setHours(23, 59, 59, 999);
     return { dataInicio: i.toISOString(), dataFim: f.toISOString() };
   }
-  if (periodo === "ano") {
-    const i = new Date(ano, 0, 1, 0, 0, 0, 0);
-    const f = new Date(ano, 11, 31, 23, 59, 59, 999);
-    return { dataInicio: i.toISOString(), dataFim: f.toISOString() };
-  }
-  // mes
-  const i = new Date(ano, mes, 1, 0, 0, 0, 0);
-  const f = new Date(ano, mes + 1, 0, 23, 59, 59, 999);
+  const days = periodo === "7d" ? 7 : 30;
+  const i = new Date(now); i.setDate(i.getDate() - days); i.setHours(0, 0, 0, 0);
+  const f = new Date(now); f.setHours(23, 59, 59, 999);
   return { dataInicio: i.toISOString(), dataFim: f.toISOString() };
 }
-
-const MESES = [
-  "Janeiro", "Fevereiro", "Março", "Abril", "Maio", "Junho",
-  "Julho", "Agosto", "Setembro", "Outubro", "Novembro", "Dezembro",
-];
 
 type GrupoUsuario = {
   user_id: string;
@@ -192,22 +178,14 @@ function AdminLogs() {
   const isMobile = useIsMobile();
   const { session } = useAuth();
   const accessToken = session?.access_token ?? "";
-  const now = new Date();
-  const [periodo, setPeriodo] = useState<FiltroPeriodo>("mes");
-  const [mes, setMes] = useState<number>(now.getMonth());
-  const [ano, setAno] = useState<number>(now.getFullYear());
+  const [periodo, setPeriodo] = useState<FiltroPeriodo>("7d");
   const [customRange, setCustomRange] = useState<{ from?: Date; to?: Date }>({});
   const [pageSize, setPageSize] = useState<number>(10);
 
   const range = useMemo(
-    () => getRange(periodo, mes, ano, customRange),
-    [periodo, mes, ano, customRange],
+    () => getRange(periodo, customRange),
+    [periodo, customRange],
   );
-
-  const anosDisponiveis = useMemo(() => {
-    const atual = now.getFullYear();
-    return [atual - 2, atual - 1, atual, atual + 1];
-  }, [now]);
 
   const { data, isLoading, error } = useQuery({
     queryKey: ["admin-logs-agrupados", range.dataInicio, range.dataFim, accessToken],
@@ -258,12 +236,12 @@ function AdminLogs() {
 
       {/* Filtros de período */}
       <Card>
-        <CardContent className="flex flex-wrap items-center gap-2 p-4">
-          <Button variant={periodo === "mes" ? "default" : "outline"} size="sm" onClick={() => setPeriodo("mes")}>
-            Mês
+        <CardContent className="flex flex-wrap items-center gap-2 p-3 sm:p-4">
+          <Button variant={periodo === "7d" ? "default" : "outline"} size="sm" onClick={() => setPeriodo("7d")}>
+            Últimos 7 dias
           </Button>
-          <Button variant={periodo === "ano" ? "default" : "outline"} size="sm" onClick={() => setPeriodo("ano")}>
-            Ano
+          <Button variant={periodo === "30d" ? "default" : "outline"} size="sm" onClick={() => setPeriodo("30d")}>
+            Últimos 30 dias
           </Button>
           <Popover>
             <PopoverTrigger asChild>
@@ -291,27 +269,6 @@ function AdminLogs() {
               />
             </PopoverContent>
           </Popover>
-
-          {periodo === "mes" && (
-            <Select value={String(mes)} onValueChange={(v) => setMes(Number(v))}>
-              <SelectTrigger className="h-9 w-[140px]"><SelectValue /></SelectTrigger>
-              <SelectContent>
-                {MESES.map((m, i) => (
-                  <SelectItem key={i} value={String(i)}>{m}</SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          )}
-          {(periodo === "mes" || periodo === "ano") && (
-            <Select value={String(ano)} onValueChange={(v) => setAno(Number(v))}>
-              <SelectTrigger className="h-9 w-[100px]"><SelectValue /></SelectTrigger>
-              <SelectContent>
-                {anosDisponiveis.map((a) => (
-                  <SelectItem key={a} value={String(a)}>{a}</SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          )}
 
           <div className="ml-auto flex items-center gap-2">
             <span className="text-xs text-muted-foreground">Mostrar</span>

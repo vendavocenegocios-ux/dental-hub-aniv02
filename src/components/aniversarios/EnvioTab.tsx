@@ -3,8 +3,8 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/use-auth";
 import { getInstanceStatus } from "@/utils/evolution.functions";
-import { formatDateTimeBR } from "@/lib/date-format";
-import { AlertCircle, History, MessageCircle } from "lucide-react";
+import { formatDateTimeBR, formatDateBR } from "@/lib/date-format";
+import { AlertCircle, History, MessageCircle, CalendarIcon } from "lucide-react";
 import {
   Card,
   CardContent,
@@ -13,6 +13,14 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover";
+import { Calendar } from "@/components/ui/calendar";
+import { useIsMobile } from "@/hooks/use-mobile";
 import {
   Table,
   TableBody,
@@ -29,6 +37,26 @@ import {
   withEvolutionTimeout,
 } from "@/components/aniversarios/request-utils";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
+
+type FiltroEnvio = "7d" | "30d" | "custom";
+
+function getEnvioRange(
+  filtro: FiltroEnvio,
+  custom?: { from?: Date; to?: Date },
+) {
+  const now = new Date();
+  if (filtro === "custom") {
+    const from = custom?.from ?? new Date(now.getFullYear(), now.getMonth(), 1);
+    const to = custom?.to ?? now;
+    const i = new Date(from); i.setHours(0, 0, 0, 0);
+    const f = new Date(to); f.setHours(23, 59, 59, 999);
+    return { from: i.toISOString(), to: f.toISOString() };
+  }
+  const days = filtro === "7d" ? 7 : 30;
+  const i = new Date(now); i.setDate(i.getDate() - days); i.setHours(0, 0, 0, 0);
+  const f = new Date(now); f.setHours(23, 59, 59, 999);
+  return { from: i.toISOString(), to: f.toISOString() };
+}
 
 interface Envio {
   id: string;
@@ -63,6 +91,10 @@ export function EnvioTab({ acessoAtivo = true }: { acessoAtivo?: boolean } = {})
 
   const [instanceStatus, setInstanceStatus] = useState<string>("disconnected");
   const [ownerNumber, setOwnerNumber] = useState<string | null>(null);
+  const [filtroEnvio, setFiltroEnvio] = useState<FiltroEnvio>("7d");
+  const [customRange, setCustomRange] = useState<{ from?: Date; to?: Date }>({});
+  const isMobile = useIsMobile();
+  const range = getEnvioRange(filtroEnvio, customRange);
 
   const getAccessToken = useCallback(async () => {
     const {
@@ -108,7 +140,7 @@ export function EnvioTab({ acessoAtivo = true }: { acessoAtivo?: boolean } = {})
   });
 
   const enviosQuery = useQuery({
-    queryKey: ["aniv:envios", userId],
+    queryKey: ["aniv:envios", userId, range.from, range.to],
     enabled: !!userId,
     queryFn: async () => {
       const { data, error } = await withRequestTimeout(
@@ -116,8 +148,10 @@ export function EnvioTab({ acessoAtivo = true }: { acessoAtivo?: boolean } = {})
           .from("envios_whatsapp")
           .select("id, telefone, nome, status, erro, created_at")
           .eq("user_id", userId!)
+          .gte("created_at", range.from)
+          .lte("created_at", range.to)
           .order("created_at", { ascending: false })
-          .limit(50),
+          .limit(500),
         "O carregamento do histórico",
       );
       if (error) throw error;
@@ -239,9 +273,9 @@ export function EnvioTab({ acessoAtivo = true }: { acessoAtivo?: boolean } = {})
         (payload) => {
           console.log("[EnvioTab] Realtime chegou (INSERT):", payload);
           const novo = mapRow(payload.new as Record<string, unknown>);
-          queryClient.setQueryData<Envio[]>(queryKey, (prev = []) => {
+          queryClient.setQueryData<Envio[]>([...queryKey, range.from, range.to], (prev = []) => {
             if (prev.some((e) => e.id === novo.id)) return prev;
-            return [novo, ...prev].slice(0, 50);
+            return [novo, ...prev].slice(0, 500);
           });
           void queryClient.invalidateQueries({ queryKey });
           notifyFinalStatus(novo);
@@ -258,7 +292,7 @@ export function EnvioTab({ acessoAtivo = true }: { acessoAtivo?: boolean } = {})
         (payload) => {
           console.log("[EnvioTab] Realtime chegou (UPDATE):", payload);
           const atualizado = mapRow(payload.new as Record<string, unknown>);
-          queryClient.setQueryData<Envio[]>(queryKey, (prev = []) =>
+          queryClient.setQueryData<Envio[]>([...queryKey, range.from, range.to], (prev = []) =>
             prev.map((e) => (e.id === atualizado.id ? atualizado : e)),
           );
           void queryClient.invalidateQueries({ queryKey });
@@ -272,7 +306,7 @@ export function EnvioTab({ acessoAtivo = true }: { acessoAtivo?: boolean } = {})
     return () => {
       void supabase.removeChannel(channel);
     };
-  }, [userId, queryClient, notifyFinalStatus]);
+  }, [userId, queryClient, notifyFinalStatus, range.from, range.to]);
 
   const seededNotifiedRef = useRef(false);
   useEffect(() => {
@@ -365,11 +399,57 @@ export function EnvioTab({ acessoAtivo = true }: { acessoAtivo?: boolean } = {})
           </CardDescription>
         </CardHeader>
         <CardContent>
+          <div className="mb-3 flex flex-wrap items-center gap-2">
+            <Button
+              size="sm"
+              variant={filtroEnvio === "7d" ? "default" : "outline"}
+              onClick={() => setFiltroEnvio("7d")}
+            >
+              Últimos 7 dias
+            </Button>
+            <Button
+              size="sm"
+              variant={filtroEnvio === "30d" ? "default" : "outline"}
+              onClick={() => setFiltroEnvio("30d")}
+            >
+              Últimos 30 dias
+            </Button>
+            <Popover>
+              <PopoverTrigger asChild>
+                <Button
+                  size="sm"
+                  variant={filtroEnvio === "custom" ? "default" : "outline"}
+                  className="gap-2"
+                >
+                  <CalendarIcon className="h-4 w-4" />
+                  {filtroEnvio === "custom" && customRange.from
+                    ? `${formatDateBR(customRange.from.toISOString())}${customRange.to ? ` → ${formatDateBR(customRange.to.toISOString())}` : ""}`
+                    : "Personalizado"}
+                </Button>
+              </PopoverTrigger>
+              <PopoverContent className="w-auto p-0" align="start">
+                <Calendar
+                  mode="range"
+                  selected={{ from: customRange.from, to: customRange.to }}
+                  onSelect={(r) => {
+                    setCustomRange({ from: r?.from, to: r?.to });
+                    setFiltroEnvio("custom");
+                  }}
+                  numberOfMonths={isMobile ? 1 : 2}
+                  className="pointer-events-auto p-3"
+                />
+              </PopoverContent>
+            </Popover>
+            <span className="ml-auto text-xs text-muted-foreground">
+              {envios.length} envio(s) no período
+            </span>
+          </div>
           {envios.length === 0 ? (
             <p className="py-4 text-center text-sm text-muted-foreground">
               Nenhum envio realizado ainda
             </p>
           ) : (
+          <div className="overflow-x-auto">
             <Table>
               <TableHeader>
                 <TableRow>
@@ -412,6 +492,7 @@ export function EnvioTab({ acessoAtivo = true }: { acessoAtivo?: boolean } = {})
                 ))}
               </TableBody>
             </Table>
+          </div>
           )}
         </CardContent>
       </Card>

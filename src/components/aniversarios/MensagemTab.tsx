@@ -412,8 +412,8 @@ export function MensagemTab({ acessoAtivo = true }: { acessoAtivo?: boolean } = 
   const previewImage = localPreviewUrl ?? imagemUrl;
 
   return (
-    <div className="grid gap-4 md:grid-cols-2">
-      <Card>
+    <div className="grid min-w-0 gap-4 md:grid-cols-2">
+      <Card className="min-w-0 overflow-hidden">
         <CardHeader>
           <CardTitle className="flex items-center gap-2 text-base">
             <MessageSquare className="h-4 w-4" />
@@ -431,6 +431,7 @@ export function MensagemTab({ acessoAtivo = true }: { acessoAtivo?: boolean } = 
               value={mensagem}
               onChange={(e) => setMensagem(e.target.value)}
               placeholder="Digite sua mensagem..."
+              className="w-full max-w-full resize-y"
             />
             <p className="mt-1 text-xs text-muted-foreground">
               Use <code className="rounded bg-muted px-1">{"{nome}"}</code> para inserir o nome do
@@ -493,14 +494,14 @@ export function MensagemTab({ acessoAtivo = true }: { acessoAtivo?: boolean } = 
         </CardContent>
       </Card>
 
-      <Card>
+      <Card className="min-w-0 overflow-hidden">
         <CardHeader>
           <CardTitle className="text-base">Preview</CardTitle>
           <CardDescription>Como a mensagem aparecerá no WhatsApp do contato</CardDescription>
         </CardHeader>
         <CardContent>
-          <div className="rounded-lg border bg-muted/30 p-4">
-            <div className="ml-auto max-w-[85%] rounded-lg rounded-tr-sm border bg-background p-2 shadow-sm">
+          <div className="rounded-lg border bg-muted/30 p-2 sm:p-4">
+            <div className="ml-auto max-w-full rounded-lg rounded-tr-sm border bg-background p-2 shadow-sm sm:max-w-[85%]">
               {previewImage ? (
                 <img
                   src={previewImage}
