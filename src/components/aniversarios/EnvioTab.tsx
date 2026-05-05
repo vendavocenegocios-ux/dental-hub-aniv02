@@ -1,17 +1,10 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { useServerFn } from "@tanstack/react-start";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/use-auth";
 import { getInstanceStatus } from "@/utils/evolution.functions";
-import { triggerN8nTestWebhook } from "@/utils/n8n-webhook.functions";
-import { diagnoseNetwork } from "@/utils/network-diagnostic.functions";
-import { normalizePhoneBR } from "@/components/aniversarios/phone-utils";
 import { formatDateTimeBR } from "@/lib/date-format";
-import { Send, MessageSquare, AlertCircle, History, Webhook } from "lucide-react";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
+import { AlertCircle, History, MessageCircle } from "lucide-react";
 import {
   Card,
   CardContent,
