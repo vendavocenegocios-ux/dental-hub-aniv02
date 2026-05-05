@@ -412,8 +412,8 @@ export function MensagemTab({ acessoAtivo = true }: { acessoAtivo?: boolean } = 
   const previewImage = localPreviewUrl ?? imagemUrl;
 
   return (
-    <div className="grid gap-4 md:grid-cols-2">
-      <Card>
+    <div className="grid min-w-0 gap-4 md:grid-cols-2">
+      <Card className="min-w-0 overflow-hidden">
         <CardHeader>
           <CardTitle className="flex items-center gap-2 text-base">
             <MessageSquare className="h-4 w-4" />
