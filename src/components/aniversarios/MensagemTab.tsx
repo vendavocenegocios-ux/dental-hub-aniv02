@@ -493,14 +493,14 @@ export function MensagemTab({ acessoAtivo = true }: { acessoAtivo?: boolean } = 
         </CardContent>
       </Card>
 
-      <Card>
+      <Card className="min-w-0 overflow-hidden">
         <CardHeader>
           <CardTitle className="text-base">Preview</CardTitle>
           <CardDescription>Como a mensagem aparecerá no WhatsApp do contato</CardDescription>
         </CardHeader>
         <CardContent>
-          <div className="rounded-lg border bg-muted/30 p-4">
-            <div className="ml-auto max-w-[85%] rounded-lg rounded-tr-sm border bg-background p-2 shadow-sm">
+          <div className="rounded-lg border bg-muted/30 p-2 sm:p-4">
+            <div className="ml-auto max-w-full rounded-lg rounded-tr-sm border bg-background p-2 shadow-sm sm:max-w-[85%]">
               {previewImage ? (
                 <img
                   src={previewImage}
