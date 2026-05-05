@@ -12,13 +12,6 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
 import {
   Table,
@@ -29,23 +22,13 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { toast } from "sonner";
-import {
-  buildMensagemPreview,
-  DEFAULT_MENSAGEM_ANIVERSARIO,
-  isMensagemConfigurada,
-} from "@/components/aniversarios/mensagem-config";
+import { isMensagemConfigurada } from "@/components/aniversarios/mensagem-config";
 import {
   getAniversariosErrorMessage,
   withRequestTimeout,
   withEvolutionTimeout,
 } from "@/components/aniversarios/request-utils";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
-
-interface Contato {
-  id: string;
-  nome: string;
-  telefone: string;
-}
 
 interface Envio {
   id: string;
@@ -63,6 +46,7 @@ interface ConfigMensagem {
 }
 
 interface InstanceRow {
+  id: string;
   instance_name: string;
   status: string;
   imagem_url: string | null;
@@ -75,47 +59,10 @@ const lastEvolutionSyncByUser = new Map<string, number>();
 export function EnvioTab({ acessoAtivo = true }: { acessoAtivo?: boolean } = {}) {
   const { user, session } = useAuth();
   const queryClient = useQueryClient();
-  const triggerN8nTestWebhookFn = useServerFn(triggerN8nTestWebhook);
   const userId = user?.id;
 
   const [instanceStatus, setInstanceStatus] = useState<string>("disconnected");
   const [ownerNumber, setOwnerNumber] = useState<string | null>(null);
-  const [selectedContato, setSelectedContato] = useState("");
-  const [customPhone, setCustomPhone] = useState("");
-  const [customNome, setCustomNome] = useState("");
-  const [sending, setSending] = useState(false);
-  const [webhookModo, setWebhookModo] = useState<"teste" | "producao">("teste");
-  const [savingWebhook, setSavingWebhook] = useState(false);
-
-  // Mantido em sincronia com src/utils/n8n-webhook.functions.ts.
-  const WEBHOOK_URLS = {
-    teste: "https://n8n.vendavocenegocios.com.br/webhook-test/1a26f671-f9b2-4c65-b6a2-33000350a7a4",
-    producao: "https://webhook.vendavocenegocios.com.br/webhook/1a26f671-f9b2-4c65-b6a2-33000350a7a4",
-  } as const;
-
-  type DiagResult = {
-    url: string;
-    method: string;
-    ok: boolean;
-    status: number | null;
-    durationMs: number;
-    error: string | null;
-    errorName: string | null;
-  };
-  const [diagResults, setDiagResults] = useState<DiagResult[] | null>(null);
-  const [diagRunning, setDiagRunning] = useState(false);
-
-  type LastSend = {
-    at: string;
-    modo: "teste" | "producao";
-    webhookUrl: string;
-    status: number | null;
-    success: boolean;
-    error: string | null;
-    response: string;
-    debugPayload: Record<string, unknown> | null;
-  };
-  const [lastSend, setLastSend] = useState<LastSend | null>(null);
 
   const getAccessToken = useCallback(async () => {
     const {
@@ -126,8 +73,6 @@ export function EnvioTab({ acessoAtivo = true }: { acessoAtivo?: boolean } = {})
     return accessToken;
   }, [session?.access_token]);
 
-  // Queries: cada uma com sua chave, cache compartilhado de 30s vindo do
-  // QueryClient global. Trocar de aba/voltar para a página é instantâneo.
   const instanceQuery = useQuery({
     queryKey: ["aniv:instance", userId],
     enabled: !!userId,
@@ -141,32 +86,7 @@ export function EnvioTab({ acessoAtivo = true }: { acessoAtivo?: boolean } = {})
         "O carregamento da instância",
       );
       if (error) throw error;
-      return (data as (InstanceRow & { id: string }) | null) ?? null;
-    },
-  });
-
-  const instanciaId = instanceQuery.data?.id ?? null;
-
-  const contatosQuery = useQuery({
-    queryKey: ["aniv:contatos", userId, instanciaId],
-    enabled: !!userId,
-    queryFn: async () => {
-      // Isolamento: filtra por user_id (defesa em profundidade) e por instancia_id
-      // quando há instância ativa, para não misturar contatos entre instâncias.
-      let query = supabase
-        .from("contatos")
-        .select("id, nome, telefone")
-        .eq("user_id", userId!)
-        .order("nome");
-      if (instanciaId) {
-        query = query.eq("instancia_id", instanciaId);
-      }
-      const { data, error } = await withRequestTimeout(
-        query,
-        "O carregamento dos contatos",
-      );
-      if (error) throw error;
-      return (data as Contato[]) ?? [];
+      return (data as InstanceRow | null) ?? null;
     },
   });
 
@@ -220,61 +140,10 @@ export function EnvioTab({ acessoAtivo = true }: { acessoAtivo?: boolean } = {})
     },
   });
 
-  const webhookConfigQuery = useQuery({
-    queryKey: ["aniv:webhook-config", userId],
-    enabled: !!userId,
-    queryFn: async () => {
-      const { data, error } = await supabase
-        .from("config_webhook")
-        .select("modo")
-        .eq("user_id", userId!)
-        .maybeSingle();
-      if (error) throw error;
-      return (data?.modo as "teste" | "producao" | undefined) ?? "teste";
-    },
-  });
-
-  const contatos = contatosQuery.data ?? [];
   const instanceRow = instanceQuery.data ?? null;
   const config = configQuery.data ?? null;
   const envios = enviosQuery.data ?? [];
   const instanceName = instanceRow?.instance_name ?? null;
-
-  // Sincroniza modo do webhook com o banco quando carrega.
-  useEffect(() => {
-    if (webhookConfigQuery.data) {
-      setWebhookModo(webhookConfigQuery.data);
-    }
-  }, [webhookConfigQuery.data]);
-
-  const webhookModoSalvo = webhookConfigQuery.data ?? "teste";
-  const webhookDirty = webhookModo !== webhookModoSalvo;
-
-  const handleSaveWebhookModo = async () => {
-    if (!userId) return;
-    setSavingWebhook(true);
-    try {
-      const { error } = await supabase
-        .from("config_webhook")
-        .upsert(
-          { user_id: userId, modo: webhookModo, updated_at: new Date().toISOString() },
-          { onConflict: "user_id" },
-        );
-      if (error) throw error;
-      await queryClient.invalidateQueries({
-        queryKey: ["aniv:webhook-config", userId],
-      });
-      toast.success(
-        `Modo ${webhookModo === "producao" ? "Produção" : "Teste"} salvo.`,
-      );
-    } catch (err) {
-      toast.error(
-        `Falha ao salvar modo do webhook: ${err instanceof Error ? err.message : String(err)}`,
-      );
-    } finally {
-      setSavingWebhook(false);
-    }
-  };
 
   // Sincroniza com status do banco quando a instância muda.
   useEffect(() => {
@@ -282,8 +151,6 @@ export function EnvioTab({ acessoAtivo = true }: { acessoAtivo?: boolean } = {})
   }, [instanceRow?.status]);
 
   // Sync de status Evolution em background, com throttle de 60s por usuário.
-  // Não bloqueia a renderização. Ao voltar para a aba dentro da janela de
-  // throttle, NÃO dispara nova chamada — é o que evita o "trava por minutos".
   const syncEvolutionStatus = useCallback(async () => {
     if (!userId || !instanceName) return;
     const last = lastEvolutionSyncByUser.get(userId) ?? 0;
@@ -319,17 +186,7 @@ export function EnvioTab({ acessoAtivo = true }: { acessoAtivo?: boolean } = {})
     void syncEvolutionStatus();
   }, [instanceName, syncEvolutionStatus]);
 
-  const refetchAll = useCallback(async () => {
-    await Promise.all([
-      queryClient.invalidateQueries({ queryKey: ["aniv:contatos", userId] }),
-      queryClient.invalidateQueries({ queryKey: ["aniv:instance", userId] }),
-      queryClient.invalidateQueries({ queryKey: ["aniv:config", userId] }),
-      queryClient.invalidateQueries({ queryKey: ["aniv:envios", userId] }),
-    ]);
-  }, [queryClient, userId]);
-
-  // Guarda o último status notificado por id de envio para evitar toasts
-  // duplicados quando o Realtime emite múltiplos eventos para a mesma linha.
+  // Guarda o último status notificado por id de envio para evitar toasts duplicados.
   const notifiedStatusRef = useRef<Map<string, string>>(new Map());
 
   const notifyFinalStatus = useCallback((envio: Envio) => {
@@ -355,9 +212,7 @@ export function EnvioTab({ acessoAtivo = true }: { acessoAtivo?: boolean } = {})
     }
   }, []);
 
-  // Realtime: novos envios aparecem no topo, updates de status atualizam a
-  // linha existente, sem duplicar registros. Filtra por user_id para
-  // garantir isolamento multi-tenant.
+  // Realtime: novos envios aparecem no topo, updates de status atualizam a linha existente.
   useEffect(() => {
     if (!userId) return;
     const queryKey = ["aniv:envios", userId];
@@ -388,8 +243,6 @@ export function EnvioTab({ acessoAtivo = true }: { acessoAtivo?: boolean } = {})
             if (prev.some((e) => e.id === novo.id)) return prev;
             return [novo, ...prev].slice(0, 50);
           });
-          // Também invalida a query para garantir consistência caso outro
-          // componente esteja lendo a mesma chave.
           void queryClient.invalidateQueries({ queryKey });
           notifyFinalStatus(novo);
         },
@@ -421,8 +274,6 @@ export function EnvioTab({ acessoAtivo = true }: { acessoAtivo?: boolean } = {})
     };
   }, [userId, queryClient, notifyFinalStatus]);
 
-  // Marca os envios já carregados na primeira renderização como "já notificados"
-  // para não disparar um toast retroativo para cada linha do histórico.
   const seededNotifiedRef = useRef(false);
   useEffect(() => {
     if (seededNotifiedRef.current) return;
@@ -434,200 +285,11 @@ export function EnvioTab({ acessoAtivo = true }: { acessoAtivo?: boolean } = {})
     seededNotifiedRef.current = true;
   }, [enviosQuery.isLoading, enviosQuery.data]);
 
+  const loading = instanceQuery.isLoading || configQuery.isLoading || enviosQuery.isLoading;
 
-  const loading =
-    contatosQuery.isLoading ||
-    instanceQuery.isLoading ||
-    configQuery.isLoading ||
-    enviosQuery.isLoading;
+  const allFailed = instanceQuery.isError && configQuery.isError && enviosQuery.isError;
 
-  const allFailed =
-    contatosQuery.isError &&
-    instanceQuery.isError &&
-    configQuery.isError &&
-    enviosQuery.isError;
-
-  const loadError = allFailed
-    ? getAniversariosErrorMessage(contatosQuery.error)
-    : null;
-
-  const handleSend = async () => {
-    console.log("ENVIO DISPARADO");
-    console.log("[EnvioTab] handleSend chamado", {
-      hasUser: !!user,
-      userId: user?.id,
-      instanceName,
-      instanceStatus,
-      hasConfig: isMensagemConfigurada(config),
-      acessoAtivo,
-      selectedContato,
-      customPhone,
-      customNome,
-      sending,
-    });
-    if (!user) {
-      console.warn("[EnvioTab] ABORT: sem user (sessão)");
-      toast.error("Sessão expirada. Faça login novamente.");
-      return;
-    }
-    if (!instanceName) {
-      console.warn("[EnvioTab] ABORT: instanceName vazio");
-      toast.error("Conecte o WhatsApp primeiro");
-      return;
-    }
-    const mensagemTemplate =
-      config?.mensagem?.trim() || DEFAULT_MENSAGEM_ANIVERSARIO;
-
-    const contato = contatos.find((c) => c.id === selectedContato);
-    const rawPhone = contato?.telefone || customPhone;
-    const nome = contato?.nome || customNome || "paciente";
-
-    if (!rawPhone) {
-      console.warn("[EnvioTab] ABORT: sem telefone (selectedContato/customPhone vazios)");
-      toast.error("Selecione um contato ou digite um número");
-      return;
-    }
-
-    const normalized = normalizePhoneBR(rawPhone);
-    if (!normalized.valid) {
-      console.warn("[EnvioTab] ABORT: telefone inválido", { rawPhone, reason: normalized.reason });
-      toast.error(
-        normalized.reason ??
-          "Número inválido. Use formato 55DDXXXXXXXXX (ex: 5521981089100).",
-      );
-      return;
-    }
-    const phone = normalized.phone;
-
-    // Validação leve: confere se há imagem no banco. A validação real de
-    // acessibilidade é feita pelo servidor em triggerN8nTestWebhook (sem CORS).
-    const { data: freshInstance, error: freshErr } = await supabase
-      .from("whatsapp_instances")
-      .select("imagem_url")
-      .eq("user_id", user.id)
-      .maybeSingle();
-    if (freshErr) {
-      console.warn("[EnvioTab] ABORT: erro ao buscar instância", freshErr);
-      toast.error(`Falha ao verificar imagem da instância: ${freshErr.message}`);
-      return;
-    }
-    if (!freshInstance?.imagem_url) {
-      console.warn("[EnvioTab] ABORT: imagem_url ausente no banco");
-      toast.error(
-        "Imagem da mensagem não está salva no banco. Vá na aba Mensagem, selecione uma imagem e clique em Salvar Configuração antes de enviar o teste.",
-        { duration: 8000 },
-      );
-      return;
-    }
-    console.log("[EnvioTab] imagem_url presente no banco:", freshInstance.imagem_url);
-    console.log("[EnvioTab] PRESTES A DISPARAR webhook via server function...");
-
-    setSending(true);
-    const finalMessage = buildMensagemPreview(mensagemTemplate, nome);
-
-    try {
-      const accessToken = await getAccessToken();
-
-      // Aciona o webhook do n8n. O n8n é responsável por:
-      // 1) chamar a Evolution API para enviar a mensagem
-      // 2) inserir o registro em `envios_whatsapp` (com user_id correto)
-      // O frontend NÃO insere nada no banco — a linha aparecerá automaticamente
-      // na tabela "Últimos Envios" via Supabase Realtime.
-      const result = await withRequestTimeout(
-        triggerN8nTestWebhookFn({
-          data: {
-            accessToken,
-            nome,
-            telefone: phone,
-            mensagem: finalMessage,
-            modo: webhookModo,
-          },
-        }),
-        "O acionamento do webhook de teste",
-        20000,
-      );
-
-      console.log("[EnvioTab] webhookUrl:", result.webhookUrl);
-      console.log("[EnvioTab] response.status do webhook:", result.status);
-      console.log("[EnvioTab] resultado do webhook:", result);
-      setLastSend({
-        at: new Date().toISOString(),
-        modo: result.modo ?? webhookModo,
-        webhookUrl: result.webhookUrl ?? "",
-        status: result.status ?? null,
-        success: result.success,
-        error: result.success ? null : (result.error ?? null),
-        response: ("response" in result ? result.response : "") ?? "",
-        debugPayload: null,
-      });
-      if (!result.success) {
-        toast.error(result.error, { duration: 8000 });
-        return;
-      }
-
-      toast.success(
-        `Webhook ${result.modo === "producao" ? "Produção" : "Teste"} aceitou (${result.status ?? "—"}).`,
-        {
-          description: "Aguardando o n8n registrar o envio em envios_whatsapp.",
-          duration: 6000,
-        },
-      );
-
-      // Marca a query como stale para disparar refetch automático em paralelo
-      // ao loop manual de retry abaixo (Realtime + invalidate + retry concorrem).
-      await queryClient.invalidateQueries({
-        queryKey: ["aniv:envios", user.id],
-      });
-
-      // Recarrega imediatamente a lista a partir do Supabase
-      // (não dependemos só do Realtime nem do carregamento inicial).
-      // Tenta algumas vezes porque o n8n pode levar alguns segundos
-      // para inserir/atualizar a linha em envios_whatsapp.
-      const reloadEnvios = async () => {
-        const { data, error } = await supabase
-          .from("envios_whatsapp")
-          .select("id, telefone, nome, status, erro, created_at")
-          .eq("user_id", user.id)
-          .order("created_at", { ascending: false })
-          .limit(20);
-        if (error) throw error;
-        const rows = (data ?? []) as Array<{
-          id: string;
-          telefone: string;
-          nome: string | null;
-          status: string;
-          erro: string | null;
-          created_at: string;
-        }>;
-        const mapped = rows.map<Envio>((r) => ({
-          id: r.id,
-          telefone: r.telefone,
-          nome: r.nome,
-          status: r.status,
-          erro: r.erro,
-          data_envio: r.created_at,
-        }));
-        queryClient.setQueryData<Envio[]>(["aniv:envios", user.id], mapped);
-        return mapped;
-      };
-
-      try {
-        const previousIds = new Set((envios ?? []).map((e) => e.id));
-        for (let attempt = 0; attempt < 6; attempt++) {
-          const fresh = await reloadEnvios();
-          const hasNew = fresh.some((e) => !previousIds.has(e.id));
-          if (hasNew) break;
-          await new Promise((r) => setTimeout(r, 1500));
-        }
-      } catch (reloadErr) {
-        console.warn("[EnvioTab] reload envios falhou", reloadErr);
-      }
-    } catch (err) {
-      toast.error(getAniversariosErrorMessage(err));
-    } finally {
-      setSending(false);
-    }
-  };
+  const loadError = allFailed ? getAniversariosErrorMessage(enviosQuery.error) : null;
 
   if (loading) {
     return (
@@ -638,6 +300,8 @@ export function EnvioTab({ acessoAtivo = true }: { acessoAtivo?: boolean } = {})
   }
 
   const hasConfiguredMessage = isMensagemConfigurada(config);
+  const statusLabel = instanceStatus === "connected" ? "WhatsApp Conectado" : "WhatsApp Desconectado";
+
   return (
     <div className="space-y-4">
       {loadError && (
@@ -650,86 +314,30 @@ export function EnvioTab({ acessoAtivo = true }: { acessoAtivo?: boolean } = {})
 
       <Card>
         <CardHeader className="pb-3">
-          <div className="flex items-center justify-between">
-            <CardTitle className="text-lg">Envio de Teste</CardTitle>
-            <div className="flex flex-wrap gap-2">
-              <Badge
-                variant={
-                  instanceStatus === "connected" ? "default" : "destructive"
-                }
-              >
-                {instanceStatus === "connected"
-                  ? "WhatsApp Conectado"
-                  : "WhatsApp Desconectado"}
+          <div className="flex items-center justify-between gap-3">
+            <CardTitle className="flex items-center gap-2 text-lg">
+              <MessageCircle className="h-5 w-5" />
+              Envios do WhatsApp
+            </CardTitle>
+            <div className="flex flex-wrap justify-end gap-2">
+              <Badge variant={instanceStatus === "connected" ? "default" : "destructive"}>
+                {statusLabel}
               </Badge>
               <Badge variant={hasConfiguredMessage ? "default" : "destructive"}>
-                {hasConfiguredMessage
-                  ? "Mensagem Configurada"
-                  : "Mensagem Não Configurada"}
+                {hasConfiguredMessage ? "Mensagem Configurada" : "Mensagem Não Configurada"}
               </Badge>
-              <Badge variant={webhookModoSalvo === "producao" ? "default" : "secondary"}>
-                Webhook salvo: {webhookModoSalvo === "producao" ? "Produção" : "Teste"}
-              </Badge>
+              {!acessoAtivo && <Badge variant="destructive">Acesso bloqueado</Badge>}
             </div>
           </div>
           <CardDescription>
-            Envie uma mensagem de teste para verificar se tudo está funcionando.
+            Acompanhe abaixo os envios registrados pela automação ativa.
             {ownerNumber && (
               <>
-                {" "}Instância conectada no número{" "}
-                <strong>{ownerNumber}</strong>. Envios para esse mesmo número
-                são bloqueados automaticamente.
+                {" "}Instância conectada no número <strong>{ownerNumber}</strong>.
               </>
             )}
           </CardDescription>
         </CardHeader>
-      </Card>
-
-      <Card>
-        <CardHeader className="pb-3">
-          <CardTitle className="flex items-center gap-2 text-base">
-            <Webhook className="h-4 w-4" />
-            Webhook de Envio (n8n)
-          </CardTitle>
-          <CardDescription>
-            Selecione o ambiente para o qual o disparo será enviado. A configuração é salva por usuário.
-          </CardDescription>
-        </CardHeader>
-        <CardContent className="space-y-3">
-          <div className="grid gap-2 sm:grid-cols-[200px_1fr_auto] sm:items-center">
-            <Label>Modo do webhook</Label>
-            <Select
-              value={webhookModo}
-              onValueChange={(v) => setWebhookModo(v as "teste" | "producao")}
-              disabled={savingWebhook || webhookConfigQuery.isLoading}
-            >
-              <SelectTrigger>
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="teste">Modo Teste</SelectItem>
-                <SelectItem value="producao">Modo Produção</SelectItem>
-              </SelectContent>
-            </Select>
-            <Button
-              onClick={handleSaveWebhookModo}
-              disabled={savingWebhook || !webhookDirty || webhookConfigQuery.isLoading}
-            >
-              {savingWebhook ? "Salvando..." : "Salvar"}
-            </Button>
-          </div>
-          <div className="rounded-md border bg-muted/30 p-3 text-xs">
-            <p className="mb-1 font-medium text-muted-foreground">
-              URL selecionada {webhookDirty && <span className="text-amber-600">(não salvo)</span>}:
-            </p>
-            <code className="break-all text-foreground">{WEBHOOK_URLS[webhookModo]}</code>
-            {webhookDirty && (
-              <p className="mt-2 text-muted-foreground">
-                O botão Enviar Teste usará esta URL selecionada agora; Salvar apenas guarda a preferência.
-              </p>
-            )}
-          </div>
-        </CardContent>
       </Card>
 
       {!hasConfiguredMessage && (
@@ -747,226 +355,13 @@ export function EnvioTab({ acessoAtivo = true }: { acessoAtivo?: boolean } = {})
       <Card>
         <CardHeader>
           <CardTitle className="flex items-center gap-2 text-base">
-            <MessageSquare className="h-4 w-4" />
-            Enviar Mensagem
-          </CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          <div>
-            <Label>Selecionar Contato</Label>
-            <Select
-              value={selectedContato}
-              onValueChange={(v) => {
-                setSelectedContato(v);
-                setCustomPhone("");
-                setCustomNome("");
-              }}
-            >
-              <SelectTrigger>
-                <SelectValue placeholder="Escolha um contato..." />
-              </SelectTrigger>
-              <SelectContent>
-                {contatos.map((c) => (
-                  <SelectItem key={c.id} value={c.id}>
-                    {c.nome} — {c.telefone}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
-
-          <div className="grid gap-2 sm:grid-cols-2">
-            <div>
-              <Label>Ou digite um número</Label>
-              <Input
-                placeholder="5511999999999"
-                value={customPhone}
-                onChange={(e) => {
-                  setCustomPhone(e.target.value);
-                  setSelectedContato("");
-                }}
-              />
-            </div>
-            <div>
-              <Label>Nome (para {"{nome}"})</Label>
-              <Input
-                placeholder="João"
-                value={customNome}
-                onChange={(e) => setCustomNome(e.target.value)}
-                disabled={!!selectedContato}
-              />
-            </div>
-          </div>
-
-          {hasConfiguredMessage && (
-            <div className="rounded-md border bg-muted/30 p-3">
-              <p className="mb-1 text-xs font-medium text-muted-foreground">
-                Preview da mensagem:
-              </p>
-              <p className="whitespace-pre-wrap text-sm">
-                {buildMensagemPreview(
-                  config?.mensagem,
-                  contatos.find((c) => c.id === selectedContato)?.nome ||
-                    customNome ||
-                    "João",
-                )}
-              </p>
-            </div>
-          )}
-
-          {(() => {
-            const motivoBloqueio = !acessoAtivo
-              ? null
-              : !instanceName
-                ? "Conecte uma instância do WhatsApp antes de enviar."
-                : null;
-            return (
-              <div className="space-y-2">
-                <div className="flex flex-wrap gap-2">
-                  <Button
-                    type="button"
-                    onClick={handleSend}
-                    disabled={sending || !!motivoBloqueio}
-                    title={motivoBloqueio ?? undefined}
-                  >
-                    <Send className="mr-2 h-4 w-4" />
-                    {sending ? "Enviando..." : "Enviar Teste"}
-                  </Button>
-                  <Button
-                    type="button"
-                    variant="outline"
-                    disabled={diagRunning}
-                    onClick={async () => {
-                      setDiagRunning(true);
-                      const tid = toast.loading("Diagnosticando rede...");
-                      try {
-                        const res = await diagnoseNetwork();
-                        console.log("[net-diag] resultado:", res);
-                        console.table(res.results);
-                        setDiagResults(res.results as DiagResult[]);
-                        const fails = res.results.filter((r) => !r.ok);
-                        toast.success(
-                          `Diagnóstico: ${res.results.length - fails.length}/${res.results.length} OK.`,
-                          { id: tid },
-                        );
-                      } catch (e) {
-                        console.error("[net-diag] erro", e);
-                        toast.error(`Falha no diagnóstico: ${e instanceof Error ? e.message : String(e)}`, { id: tid });
-                      } finally {
-                        setDiagRunning(false);
-                      }
-                    }}
-                  >
-                    {diagRunning ? "Diagnosticando..." : "Diagnosticar rede"}
-                  </Button>
-                </div>
-                {motivoBloqueio && (
-                  <p className="text-xs text-destructive">{motivoBloqueio}</p>
-                )}
-              </div>
-            );
-          })()}
-        </CardContent>
-      </Card>
-
-      {lastSend && (
-        <Card>
-          <CardHeader className="pb-2">
-            <CardTitle className="text-base">Último envio de teste</CardTitle>
-            <CardDescription>
-              {formatDateTimeBR(lastSend.at)} — modo{" "}
-              <strong>{lastSend.modo === "producao" ? "Produção" : "Teste"}</strong>
-            </CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-2 text-sm">
-            <div className="flex flex-wrap items-center gap-2">
-              <Badge variant={lastSend.success ? "default" : "destructive"}>
-                {lastSend.success ? "OK" : "Falha"}
-              </Badge>
-              <Badge variant="secondary">HTTP {lastSend.status ?? "—"}</Badge>
-            </div>
-            <div className="rounded-md border bg-muted/30 p-2">
-              <p className="text-xs text-muted-foreground">Webhook</p>
-              <code className="break-all text-xs">{lastSend.webhookUrl}</code>
-            </div>
-            {lastSend.error && (
-              <div className="rounded-md border border-destructive/40 bg-destructive/5 p-2">
-                <p className="text-xs font-medium text-destructive">Erro</p>
-                <p className="text-xs text-destructive whitespace-pre-wrap">{lastSend.error}</p>
-              </div>
-            )}
-            {lastSend.debugPayload && (
-              <details className="rounded-md border bg-muted/20 p-2">
-                <summary className="cursor-pointer text-xs font-medium">Payload enviado (sanitizado)</summary>
-                <pre className="mt-2 overflow-auto text-[10px]">
-                  {JSON.stringify(lastSend.debugPayload, null, 2)}
-                </pre>
-              </details>
-            )}
-            {lastSend.response && (
-              <details className="rounded-md border bg-muted/20 p-2">
-                <summary className="cursor-pointer text-xs font-medium">Resposta do n8n</summary>
-                <pre className="mt-2 overflow-auto text-[10px]">{lastSend.response}</pre>
-              </details>
-            )}
-          </CardContent>
-        </Card>
-      )}
-
-      {diagResults && (
-        <Card>
-          <CardHeader className="pb-2">
-            <CardTitle className="text-base">Diagnóstico de rede (servidor → externo)</CardTitle>
-            <CardDescription>
-              Cada linha é uma requisição feita pela server function. Se o n8n falhar mas Google/1.1.1.1 funcionarem, o bloqueio é específico do host.
-            </CardDescription>
-          </CardHeader>
-          <CardContent>
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>URL</TableHead>
-                  <TableHead>Método</TableHead>
-                  <TableHead>Status</TableHead>
-                  <TableHead>Tempo</TableHead>
-                  <TableHead>Resultado</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {diagResults.map((r, i) => (
-                  <TableRow key={i}>
-                    <TableCell className="font-mono text-[10px] break-all max-w-[260px]">{r.url}</TableCell>
-                    <TableCell className="text-xs">{r.method}</TableCell>
-                    <TableCell className="text-xs">{r.status ?? "—"}</TableCell>
-                    <TableCell className="text-xs">{r.durationMs}ms</TableCell>
-                    <TableCell>
-                      {r.ok ? (
-                        <Badge>OK</Badge>
-                      ) : (
-                        <Badge variant="destructive" title={r.error ?? ""}>
-                          {r.errorName ?? `HTTP ${r.status ?? "?"}`}
-                        </Badge>
-                      )}
-                    </TableCell>
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
-          </CardContent>
-        </Card>
-      )}
-
-      <Card>
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2 text-base">
             <History className="h-4 w-4" />
             Últimos Envios
           </CardTitle>
           <CardDescription>
             <strong>Pendente</strong> = aceito pela Evolution API, aguardando
-            entrega final no WhatsApp do destinatário.{" "}
-            <strong>Erro</strong> = a Evolution rejeitou o envio (passe o mouse
-            no ⓘ para ver o motivo).
+            entrega final no WhatsApp do destinatário. <strong>Erro</strong> = a
+            Evolution rejeitou o envio.
           </CardDescription>
         </CardHeader>
         <CardContent>
@@ -991,9 +386,7 @@ export function EnvioTab({ acessoAtivo = true }: { acessoAtivo?: boolean } = {})
                       {formatDateTimeBR(e.data_envio)}
                     </TableCell>
                     <TableCell>{e.nome ?? "-"}</TableCell>
-                    <TableCell className="font-mono text-xs">
-                      {e.telefone}
-                    </TableCell>
+                    <TableCell className="font-mono text-xs">{e.telefone}</TableCell>
                     <TableCell>
                       <Badge
                         variant={
