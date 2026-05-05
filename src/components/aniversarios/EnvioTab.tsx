@@ -3,8 +3,8 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/use-auth";
 import { getInstanceStatus } from "@/utils/evolution.functions";
-import { formatDateTimeBR } from "@/lib/date-format";
-import { AlertCircle, History, MessageCircle } from "lucide-react";
+import { formatDateTimeBR, formatDateBR } from "@/lib/date-format";
+import { AlertCircle, History, MessageCircle, CalendarIcon } from "lucide-react";
 import {
   Card,
   CardContent,
@@ -13,6 +13,14 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover";
+import { Calendar } from "@/components/ui/calendar";
+import { useIsMobile } from "@/hooks/use-mobile";
 import {
   Table,
   TableBody,
@@ -29,6 +37,26 @@ import {
   withEvolutionTimeout,
 } from "@/components/aniversarios/request-utils";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
+
+type FiltroEnvio = "7d" | "30d" | "custom";
+
+function getEnvioRange(
+  filtro: FiltroEnvio,
+  custom?: { from?: Date; to?: Date },
+) {
+  const now = new Date();
+  if (filtro === "custom") {
+    const from = custom?.from ?? new Date(now.getFullYear(), now.getMonth(), 1);
+    const to = custom?.to ?? now;
+    const i = new Date(from); i.setHours(0, 0, 0, 0);
+    const f = new Date(to); f.setHours(23, 59, 59, 999);
+    return { from: i.toISOString(), to: f.toISOString() };
+  }
+  const days = filtro === "7d" ? 7 : 30;
+  const i = new Date(now); i.setDate(i.getDate() - days); i.setHours(0, 0, 0, 0);
+  const f = new Date(now); f.setHours(23, 59, 59, 999);
+  return { from: i.toISOString(), to: f.toISOString() };
+}
 
 interface Envio {
   id: string;
