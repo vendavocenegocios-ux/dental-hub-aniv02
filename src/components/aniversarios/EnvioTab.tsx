@@ -556,25 +556,19 @@ export function EnvioTab({ acessoAtivo = true }: { acessoAtivo?: boolean } = {})
 
       console.log("[EnvioTab] webhookUrl:", result.webhookUrl);
       console.log("[EnvioTab] response.status do webhook:", result.status);
-      console.log("[EnvioTab] payload/debug retornado:", result.debugPayload);
       console.log("[EnvioTab] resultado do webhook:", result);
       setLastSend({
         at: new Date().toISOString(),
-        modo: result.modo,
-        webhookUrl: result.webhookUrl,
-        status: result.status,
+        modo: result.modo ?? webhookModo,
+        webhookUrl: result.webhookUrl ?? "",
+        status: result.status ?? null,
         success: result.success,
-        error: result.error,
-        response: result.response ?? "",
-        debugPayload: (result.debugPayload as Record<string, unknown>) ?? null,
+        error: result.success ? null : (result.error ?? null),
+        response: ("response" in result ? result.response : "") ?? "",
+        debugPayload: null,
       });
       if (!result.success) {
-        toast.error(result.error, {
-          description: result.debugPayload
-            ? `Imagem: ${result.debugPayload.imagem_fonte} | Instância: ${result.debugPayload.nome_instancia}`
-            : undefined,
-          duration: 8000,
-        });
+        toast.error(result.error, { duration: 8000 });
         return;
       }
 
