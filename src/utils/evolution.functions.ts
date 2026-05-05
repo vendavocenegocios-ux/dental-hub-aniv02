@@ -547,13 +547,18 @@ export const getInstanceStatus = createServerFn({ method: "POST" })
       }
       // Extrai o número conectado (ownerJid) — usado para impedir auto-envio
       let ownerNumber: string | null = null;
+      let novoStatus = "disconnected";
       if (typeof body === "object" && body !== null) {
         const b = body as {
-          instance?: { owner?: string; ownerJid?: string; wuid?: string };
+          instance?: { state?: string; owner?: string; ownerJid?: string; wuid?: string };
+          state?: string;
           owner?: string;
           ownerJid?: string;
           wuid?: string;
         };
+        const state = b.instance?.state ?? b.state;
+        if (state === "open") novoStatus = "connected";
+        else if (state === "connecting") novoStatus = "connecting";
         const owner =
           b.instance?.ownerJid ??
           b.instance?.owner ??
@@ -567,6 +572,7 @@ export const getInstanceStatus = createServerFn({ method: "POST" })
           ownerNumber = owner.split("@")[0].replace(/\D/g, "") || null;
         }
       }
+      await persistInstanceStatusAndNotify(data.instanceName, novoStatus, ownerNumber);
       return { success: true, data: body, ownerNumber };
     } catch (error) {
       return {
