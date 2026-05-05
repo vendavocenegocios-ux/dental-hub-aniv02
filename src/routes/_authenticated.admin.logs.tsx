@@ -64,7 +64,8 @@ type LogRow = {
   email: string | null;
   nome_responsavel: string | null;
   instancia: string | null;
-  data: string; // YYYY-MM-DD ou ISO
+  owner_number: string | null;
+  data: string;
   total: number | null;
   enviados: number | null;
   erros: number | null;
