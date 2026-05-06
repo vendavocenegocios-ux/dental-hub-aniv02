@@ -8,7 +8,11 @@ function configureWebPush() {
   if (configured) return true;
   const pub = process.env.VAPID_PUBLIC_KEY;
   const priv = process.env.VAPID_PRIVATE_KEY;
-  const subject = process.env.VAPID_SUBJECT ?? "mailto:admin@dentalhub.app";
+  let subject = process.env.VAPID_SUBJECT ?? "mailto:admin@dentalhub.app";
+  // VAPID subject precisa ser URL válido (mailto: ou https://)
+  if (subject && !/^(mailto:|https?:\/\/)/i.test(subject)) {
+    subject = `mailto:${subject}`;
+  }
   if (!pub || !priv) {
     console.warn("[push] VAPID keys ausentes — push desabilitado");
     return false;
