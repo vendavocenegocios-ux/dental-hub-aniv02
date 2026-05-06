@@ -112,6 +112,8 @@ export const enviarComunicado = createServerFn({ method: "POST" })
       titulo: z.string().min(3).max(120),
       mensagem: z.string().min(3).max(1000),
       link: z.string().max(500).optional(),
+      // destinatários: vazio/omitido = TODOS os usuários não-admin
+      userIds: z.array(z.string().uuid()).max(5000).optional(),
     }),
   )
   .handler(async ({ data }) => {
@@ -124,13 +126,18 @@ export const enviarComunicado = createServerFn({ method: "POST" })
     if (profile?.role !== "admin") throw new Error("Acesso negado");
 
     const admin = getSupabaseAdmin();
-    const { data: users, error } = await admin
-      .from("profiles")
-      .select("id")
-      .neq("role", "admin");
-    if (error) throw new Error(error.message);
-
-    const userIds = (users ?? []).map((u) => u.id as string);
+    let userIds: string[] = [];
+    if (data.userIds && data.userIds.length > 0) {
+      userIds = data.userIds;
+    } else {
+      // .neq() exclui linhas com role NULL — usar OR explícito p/ pegar todos não-admin
+      const { data: users, error } = await admin
+        .from("profiles")
+        .select("id, role")
+        .or("role.is.null,role.neq.admin");
+      if (error) throw new Error(error.message);
+      userIds = (users ?? []).map((u) => u.id as string);
+    }
     const result = await sendPushToUsers(userIds, {
       title: data.titulo,
       body: data.mensagem,
@@ -138,4 +145,36 @@ export const enviarComunicado = createServerFn({ method: "POST" })
       tipo: "info",
     });
     return { ...result, ok: true, usuarios: userIds.length };
+  });
+
+// Lista usuários não-admin para escolha de destinatário
+export const listAdminUserOptions = createServerFn({ method: "POST" })
+  .inputValidator(z.object({ accessToken: z.string().min(1) }))
+  .handler(async ({ data }) => {
+    const { supabase, user } = await getAuthedClient(data.accessToken);
+    const { data: profile } = await supabase
+      .from("profiles")
+      .select("role")
+      .eq("id", user.id)
+      .single();
+    if (profile?.role !== "admin") throw new Error("Acesso negado");
+    const admin = getSupabaseAdmin();
+    const { data: rows, error } = await admin
+      .from("profiles")
+      .select("id, email, nome_responsavel, nome_clinica, role")
+      .or("role.is.null,role.neq.admin")
+      .order("created_at", { ascending: false })
+      .limit(1000);
+    if (error) throw new Error(error.message);
+    return {
+      usuarios: (rows ?? []).map((r) => ({
+        id: r.id as string,
+        email: (r.email as string) ?? "",
+        nome:
+          (r.nome_responsavel as string) ||
+          (r.nome_clinica as string) ||
+          (r.email as string) ||
+          "Usuário",
+      })),
+    };
   });
