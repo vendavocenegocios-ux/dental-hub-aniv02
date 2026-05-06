@@ -57,6 +57,13 @@ export function PushSubscribeCard() {
       const reg =
         (await navigator.serviceWorker.getRegistration()) ??
         (await navigator.serviceWorker.register("/sw.js"));
+      if (Notification.permission === "denied") {
+        toast.error(
+          "Notificações bloqueadas no navegador. Clique no cadeado da barra de endereço → Permissões → Notificações → Permitir.",
+          { duration: 8000 },
+        );
+        return;
+      }
       const perm = await Notification.requestPermission();
       setPermission(perm);
       if (perm !== "granted") {
