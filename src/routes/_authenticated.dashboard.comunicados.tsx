@@ -69,10 +69,14 @@ function ComunicadosPage() {
           </CardTitle>
         </CardHeader>
         <CardContent>
-          {isLoading ? (
+          {isLoading && !data ? (
             <div className="flex justify-center py-12">
               <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
             </div>
+          ) : isError ? (
+            <p className="py-10 text-center text-sm text-destructive">
+              Erro ao carregar comunicados: {(error as Error)?.message ?? "tente novamente"}
+            </p>
           ) : comunicados.length === 0 ? (
             <p className="py-10 text-center text-sm text-muted-foreground">Nenhum comunicado recebido ainda.</p>
           ) : (
