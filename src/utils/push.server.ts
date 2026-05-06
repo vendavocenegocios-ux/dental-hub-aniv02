@@ -68,30 +68,53 @@ async function sendPushToUserIds(
     url: payload.url ?? "/dashboard/comunicados",
   });
 
+  // Timeout por endpoint para nunca prender o request inteiro num
+  // FCM/APNs lento. Limita o total a ~6s.
+  const PER_ENDPOINT_TIMEOUT_MS = 4000;
+  const HARD_DEADLINE_MS = 6000;
+  const startedAt = Date.now();
   let sent = 0;
-  await Promise.all(
-    (subs ?? []).map(async (s) => {
-      try {
-        await webpush.sendNotification(
+
+  const sendOne = async (s: { id: unknown; endpoint: unknown; p256dh: unknown; auth: unknown }) => {
+    try {
+      await Promise.race([
+        webpush.sendNotification(
           {
             endpoint: s.endpoint as string,
             keys: { p256dh: s.p256dh as string, auth: s.auth as string },
           },
           json,
-        );
-        sent++;
-      } catch (err: unknown) {
-        const status = (err as { statusCode?: number }).statusCode;
-        if (status === 404 || status === 410) {
+          { TTL: 60 },
+        ),
+        new Promise((_, reject) =>
+          setTimeout(() => reject(new Error("push-timeout")), PER_ENDPOINT_TIMEOUT_MS),
+        ),
+      ]);
+      sent++;
+    } catch (err: unknown) {
+      const status = (err as { statusCode?: number }).statusCode;
+      if (status === 404 || status === 410) {
+        try {
           await admin.from("push_subscriptions").delete().eq("id", s.id as string);
-        } else {
-          console.warn("[push] falha em endpoint", status, err);
-        }
+        } catch {}
+      } else {
+        console.warn("[push] falha em endpoint", status, (err as Error)?.message);
       }
-    }),
-  );
+    }
+  };
 
-  return { ok: true, sent, total: subs?.length ?? 0, inApp: ids.length };
+  await Promise.race([
+    Promise.all((subs ?? []).map(sendOne)),
+    new Promise((resolve) => setTimeout(resolve, HARD_DEADLINE_MS)),
+  ]);
+
+  return {
+    ok: true,
+    sent,
+    total: subs?.length ?? 0,
+    inApp: ids.length,
+    elapsedMs: Date.now() - startedAt,
+  };
 }
 
 /**

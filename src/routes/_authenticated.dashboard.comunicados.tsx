@@ -33,8 +33,9 @@ function ComunicadosPage() {
     queryKey: ["notificacoes", "comunicados"],
     enabled: !!accessToken,
     queryFn: () => listNotificacoes({ data: { accessToken, limit: 100 } }),
-    retry: 1,
-    refetchInterval: 60_000,
+    retry: 0,
+    refetchOnWindowFocus: false,
+    staleTime: 30_000,
   });
 
   const comunicados = ((data?.notificacoes ?? []) as Comunicado[]).filter(
